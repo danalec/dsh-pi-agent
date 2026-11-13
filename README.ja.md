@@ -124,10 +124,13 @@ pi モード:         [履歴ロード済み] ── ターン 4 ── …  （
 ## インストール
 
 ```bash
-npm install dsh-pi-agent
+npm install danalec/dsh-pi-agent
 ```
 
-パッケージは npm レジストリにあります（[dsh-pi-agent](https://www.npmjs.com/package/dsh-pi-agent)）。任意の DSH profile からマウントしてください（Web 用の完成 profile は [dsh-pi](https://github.com/Micheleww/dsh-pi) を参照）。
+このパッケージは npm レジストリにはありません — 以前の `dsh-pi-agent` の
+公開は取り消されています — そのため GitHub から直接インストールして
+ください。任意の DSH profile からマウントできます（Web 用の完成 profile は
+[dsh-pi](https://github.com/Micheleww/dsh-pi) を参照）。
 
 関連: [pi エコシステム](https://github.com/earendil-works/pi) には [pi-gui](https://github.com/minghinmatthewlam/pi-gui)、[pi-hosts](https://github.com/hunvreus/pi-hosts)、[pi-zentui](https://www.npmjs.com/package/pi-zentui) もあります。DSH はサブエージェントエンジンとして [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) と [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) をネイティブにブリッジします — dsh-pi-agent は同じ形で **pi** をエンジンおよび loop の選択肢に追加します。
 
@@ -177,6 +180,9 @@ npm install
 npm run typecheck   # tsc --noEmit
 npm test            # ビルドしてから node:test スイートを実行
 ```
+
+テストランナーには glob サポートのため Node ≥ 21 が必要です。ライブラリ本体は
+Node ≥ 20.11 で動作します。
 
 スイートは履歴再構築（ブロックマッピング、停止理由、セッション ID）、Pi イベント変換（ツール結果、ストリーミングされる tool-call ID、確定、キャンセル、inbox の claim）、そして実際の JSONL プロトコルを話す偽の `pi` バイナリに対する RPC クライアントをカバーしています。
 

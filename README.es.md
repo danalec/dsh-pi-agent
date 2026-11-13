@@ -124,10 +124,13 @@ Cada delegación lanza un `pi -p <tarea>` nuevo en el directorio de trabajo de l
 ## Instalación
 
 ```bash
-npm install dsh-pi-agent
+npm install danalec/dsh-pi-agent
 ```
 
-El paquete está en el registro de npm ([dsh-pi-agent](https://www.npmjs.com/package/dsh-pi-agent)). Móntalo desde cualquier profile de DSH (véase [dsh-pi](https://github.com/Micheleww/dsh-pi) para un profile web listo).
+El paquete no está en el registro de npm — la publicación anterior de
+`dsh-pi-agent` fue despublicada — así que instálalo directamente desde
+GitHub. Móntalo desde cualquier profile de DSH (véase [dsh-pi](https://github.com/Micheleww/dsh-pi)
+para un profile web listo).
 
 Relacionado: el [ecosistema pi](https://github.com/earendil-works/pi) también tiene [pi-gui](https://github.com/minghinmatthewlam/pi-gui), [pi-hosts](https://github.com/hunvreus/pi-hosts), [pi-zentui](https://www.npmjs.com/package/pi-zentui); DSH hace de puente nativo con [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) y [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) como motores de subagente — dsh-pi-agent añade **pi** como opción de motor y de loop del mismo modo.
 
@@ -177,6 +180,9 @@ npm install
 npm run typecheck   # tsc --noEmit
 npm test            # compila y ejecuta la suite de node:test
 ```
+
+El runner de pruebas necesita Node ≥ 21 (soporte de glob); la biblioteca en sí
+funciona en Node ≥ 20.11.
 
 La suite cubre la reconstrucción del historial (mapeo de bloques, motivos de fin, identidad de sesión), la traducción de eventos de Pi (resultados de herramienta, ids de tool-call en streaming, cierre, cancelación, reclamación de la inbox) y el cliente RPC contra un binario `pi` falso que habla el protocolo JSONL real.
 

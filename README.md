@@ -128,10 +128,10 @@ Each delegation spawns a fresh `pi -p <task>` in the parent session's working di
 ## Install
 
 ```bash
-npm install dsh-pi-agent
+npm install danalec/dsh-pi-agent
 ```
 
-The package is on the npm registry ([dsh-pi-agent](https://www.npmjs.com/package/dsh-pi-agent)). Mount it from any DSH profile (see [dsh-pi](https://github.com/Micheleww/dsh-pi) for a ready-made web profile).
+The package is not on the npm registry — the earlier `dsh-pi-agent` release was unpublished — so install it straight from GitHub. Mount it from any DSH profile (see [dsh-pi](https://github.com/Micheleww/dsh-pi) for a ready-made web profile).
 
 Related: the [pi ecosystem](https://github.com/earendil-works/pi) also has [pi-gui](https://github.com/minghinmatthewlam/pi-gui), [pi-hosts](https://github.com/hunvreus/pi-hosts), [pi-zentui](https://www.npmjs.com/package/pi-zentui); DSH natively bridges [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) and [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) as subagent engines — dsh-pi-agent adds **pi** as an engine and loop option the same way.
 
@@ -189,6 +189,9 @@ npm install
 npm run typecheck   # tsc --noEmit
 npm test            # builds, then runs the node:test suite
 ```
+
+The test runner needs Node ≥ 21 (its glob support); the library itself runs
+on Node ≥ 20.11.
 
 The suite covers the history rebuild (block mapping, stop reasons, session
 identity), the Pi event translation (tool results, streamed tool-call ids,

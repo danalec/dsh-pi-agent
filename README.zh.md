@@ -125,8 +125,10 @@ Pi 模式：         [历史已加载] ── 第 4 轮 ── …  （Pi loop�
 
 ```bash
 # 在你的 DSH 检出目录内（或 profile patch 可加载的任意位置）
-npm install dsh-pi-agent
+npm install danalec/dsh-pi-agent
 ```
+
+该包不在 npm registry 上——此前发布的 `dsh-pi-agent` 版本已被 unpublish——因此请直接从 GitHub 安装。
 
 ## 使用
 
@@ -174,6 +176,8 @@ npm install
 npm run typecheck   # tsc --noEmit
 npm test            # 先构建，再跑 node:test 测试套件
 ```
+
+测试运行器需要 Node ≥ 21（其 glob 支持）；库本身在 Node ≥ 20.11 上运行。
 
 测试覆盖历史重建（块映射、停止原因、会话身份）、Pi 事件翻译（工具结果、流式工具调用 id、settle、取消、inbox claim），以及用一个会讲真实 JSONL 协议的假 `pi` 可执行文件驱动的 RPC 客户端。
 
