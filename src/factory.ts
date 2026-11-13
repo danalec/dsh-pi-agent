@@ -17,7 +17,6 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import {
-  type Agent,
   type AgentFactory,
   type AgentHandle,
   type AgentOptions,
@@ -178,7 +177,6 @@ export class PiAgentFactory implements AgentFactory {
           session,
           cwd,
           options.agentOptions,
-          options.parentAgent,
           options.signal,
           options.setup,
           'startup',
@@ -228,7 +226,6 @@ export class PiAgentFactory implements AgentFactory {
           session,
           cwd,
           options.agentOptions,
-          options.parentAgent,
           signal,
           options.setup,
           'resume',
@@ -260,7 +257,6 @@ export class PiAgentFactory implements AgentFactory {
     session: Session,
     cwd: string,
     agentOptions: AgentOptions | undefined,
-    parentAgent: Agent | undefined,
     signal: AbortSignal | undefined,
     setup: CreateAgentOptions['setup'],
     source: PiSessionStartSource,
@@ -344,7 +340,7 @@ export class PiAgentFactory implements AgentFactory {
         }
       }
       detachSession = agent.ctx.sessions.enter(session)
-      detachAgent = this.registryCtx.agents.enter(agent, parentAgent)
+      detachAgent = this.registryCtx.agents.enter(agent)
       agent.ctx.sessions.announce(session)
       // The registry announces the agent and runs the `agent/created`
       // listeners with the creation source (fresh session or resume).

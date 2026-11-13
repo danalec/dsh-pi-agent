@@ -122,18 +122,34 @@ Each delegation spawns a fresh `pi -p <task>` in the parent session's working di
 
 ## Compatibility
 
-The plugin implements the DSH **0.2 agent API**, not the 0.1 one:
+The plugin implements the DSH **0.2 agent API**, not the 0.1 one. It is developed
+and tested against **DSH 0.2.2-rc.3**; the published peer range accepts every
+`0.2.2-rc.x` of that line.
 
 | DSH API | What the plugin does |
 | --- | --- |
 | `ctx.agents.setFactory` | registers the Pi factory synchronously, so a session created right after the plugin mounts finds it |
 | `Agent.inbox` | the driver owns the pending input (`src/inbox.ts`); DSH 0.2 turned `Inbox` into a structural interface, the implementation belongs to the driver |
 | `Agent.model` | the driver owns the durable model choice (`src/model.ts`) |
+| `CreateAgentOptions.meta` | the session's own `cwd` and fork lineage (`parentSession`) travel as session metadata; the plugin passes them straight to the session boundary |
+| `ctx.agents.enter(agent)` | the agent joins the registry with the agent alone — the parent link is session data, not a second agent argument |
 | `agent/created` | the registry announces the agent with the session source (`startup` / `resume`) |
 | `agent/assistant-stream` | the start/chunk/end frames of one assistant attempt |
 | `assistant/message` | carries the provider stream inside the event (`stream`), not as separate chunk events |
 | `tool/result` | the tool-result message carries the model-facing blocks directly |
 | session persistence | `persistence.create()` / `persistence.open(id, 'write')` own the stored log; the events reach the backend through its `session/event` subscription |
+
+### What changed in 0.2.2-rc.3
+
+The 0.2.2 release candidates kept moving the factory contract, and rc.3 is the
+shape the plugin is written against:
+
+- `CreateAgentOptions.parentAgent` and `ResumeAgentOptions.parentAgent` are
+  gone. The fork lineage is session data now:
+  `CreateAgentOptions.meta.parentSession` (a `SessionId`); `resume` carries no
+  metadata at all.
+- `ctx.agents.enter(agent)` takes the agent alone — the parent argument is no
+  longer part of the registry's contract.
 
 DSH checks the plugin's peer range against the running runtime at install
 time, so a version mismatch is reported before the plugin is ever mounted.
@@ -142,7 +158,7 @@ time, so a version mismatch is reported before the plugin is ever mounted.
 
 - Node.js ≥ 20
 - [`pi`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) (`npm i -g @earendil-works/pi-coding-agent`) on `PATH` (or pass `piPath`)
-- [DSH](https://www.npmjs.com/package/@deepseek-ai/dsh) ≥ `0.2.2-rc.1` (`npm i -g @deepseek-ai/dsh`) with a profile exposing the `sessions`, `agents` and `sessionProjections` services (the standard frontend assembly)
+- [DSH](https://www.npmjs.com/package/@deepseek-ai/dsh) ≥ `0.2.2-rc.3` (`npm i -g @deepseek-ai/dsh`) with a profile exposing the `sessions`, `agents` and `sessionProjections` services (the standard frontend assembly)
 - Peer deps: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-agent`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-scope`, `@deepseek-ai/dsh-session`, `@deepseek-ai/dsh-session-projection`, `@deepseek-ai/dsh-subagent`
 
 ## Install
@@ -266,6 +282,11 @@ npm run typecheck   # tsc --noEmit
 npm test            # builds, then runs the node:test suite
 npm run build       # refresh dist/ — what the profile actually loads
 ```
+
+`package.json` pins the `@deepseek-ai/dsh-*` packages to `0.2.2-rc.3` through
+an `overrides` block: the DSH packages pin each other's peers to an exact
+version, so a mixed tree cannot be resolved — every one of them has to move
+together.
 
 `dist/` is what DSH loads, so a linked working tree needs `npm run build`
 (and a DSH restart) to pick up a change.

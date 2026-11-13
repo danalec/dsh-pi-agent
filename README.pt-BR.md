@@ -118,18 +118,27 @@ Cada delegação spawna um `pi -p <tarefa>` novo no diretório de trabalho da se
 
 ## Compatibilidade
 
-O plugin implementa a API de agente do DSH **0.2**, não a 0.1:
+O plugin implementa a API de agente do DSH **0.2**, não a 0.1. É desenvolvido e testado contra o **DSH 0.2.2-rc.3**; a faixa de peer publicada aceita qualquer `0.2.2-rc.x` dessa linha.
 
 | API do DSH | O que o plugin faz |
 | --- | --- |
 | `ctx.agents.setFactory` | registra a fábrica do Pi de forma síncrona, então uma sessão criada logo após a montagem já encontra a fábrica |
 | `Agent.inbox` | o driver é dono da entrada pendente (`src/inbox.ts`); no DSH 0.2 `Inbox` virou interface estrutural e a implementação pertence ao driver |
 | `Agent.model` | o driver é dono da escolha durável de modelo (`src/model.ts`) |
+| `CreateAgentOptions.meta` | o `cwd` e a linhagem de fork da sessão (`parentSession`) viajam como metadados da sessão; o plugin repassa tudo direto para a fronteira da sessão |
+| `ctx.agents.enter(agent)` | o agente entra no registro só com o agente — o elo com o pai é dado da sessão, não um segundo argumento |
 | `agent/created` | o registro anuncia o agente com a origem da sessão (`startup` / `resume`) |
 | `agent/assistant-stream` | os frames de início/chunk/fim de uma tentativa do assistant |
 | `assistant/message` | carrega o stream do provedor dentro do evento (`stream`), em vez de eventos de chunk separados |
 | `tool/result` | a mensagem de resultado da ferramenta carrega os blocos voltados ao modelo diretamente |
 | persistência de sessão | `persistence.create()` / `persistence.open(id, 'write')` são donos do log armazenado; os eventos chegam ao backend pela assinatura dele em `session/event` |
+
+### O que mudou no 0.2.2-rc.3
+
+Os release candidates da linha 0.2.2 continuaram mexendo no contrato da fábrica, e o rc.3 é o formato contra o qual o plugin está escrito:
+
+- `CreateAgentOptions.parentAgent` e `ResumeAgentOptions.parentAgent` saíram. A linhagem de fork agora é dado da sessão: `CreateAgentOptions.meta.parentSession` (um `SessionId`); `resume` não carrega metadado nenhum.
+- `ctx.agents.enter(agent)` recebe apenas o agente — o argumento do pai não faz mais parte do contrato do registro.
 
 O DSH confere a faixa de peer do plugin contra o runtime em execução no momento da instalação, então uma versão incompatível é reportada antes de o plugin ser montado.
 
@@ -137,8 +146,8 @@ O DSH confere a faixa de peer do plugin contra o runtime em execução no moment
 
 - Node.js ≥ 20
 - [`pi`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) (`npm i -g @earendil-works/pi-coding-agent`) no `PATH` (ou passe `piPath`)
-- [DSH](https://www.npmjs.com/package/@deepseek-ai/dsh) (`npm i -g @deepseek-ai/dsh`) com um profile expondo os serviços `sessions` e `agents` (a montagem padrão do frontend)
-- Deps de peer: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-agent`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-scope`, `@deepseek-ai/dsh-session`
+- [DSH](https://www.npmjs.com/package/@deepseek-ai/dsh) ≥ `0.2.2-rc.3` (`npm i -g @deepseek-ai/dsh`) com um profile expondo os serviços `sessions`, `agents` e `sessionProjections` (a montagem padrão do frontend)
+- Deps de peer: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-agent`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-scope`, `@deepseek-ai/dsh-session`, `@deepseek-ai/dsh-session-persistence`, `@deepseek-ai/dsh-session-projection`, `@deepseek-ai/dsh-subagent`
 
 ## Instalação
 
@@ -242,7 +251,15 @@ Defina `debug: true`: cada comando RPC, evento, saída do processo filho e passo
 npm install
 npm run typecheck   # tsc --noEmit
 npm test            # compila e roda a suíte node:test
+npm run build       # atualiza dist/ — é o que o profile carrega
 ```
+
+O `package.json` fixa os pacotes `@deepseek-ai/dsh-*` em `0.2.2-rc.3` por um
+bloco `overrides`: os pacotes do DSH pinam o peer dos outros numa versão exata,
+então uma árvore misturada não resolve — todos precisam andar juntos.
+
+`dist/` é o que o DSH carrega, então uma árvore linkada precisa de `npm run build`
+(e de um restart do DSH) para pegar a mudança.
 
 O runner de testes precisa de Node ≥ 21 (suporte a glob); a biblioteca roda em
 Node ≥ 20.11.
