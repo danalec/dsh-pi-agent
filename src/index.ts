@@ -62,7 +62,17 @@ export type { PiFactoryOptions, PiSessionStartSource } from './factory.ts'
 
 export const name = 'pi-loop'
 
-export const inject = ['sessions', 'agents', 'sessionProjections']
+/**
+ * Services the agent scope must be able to resolve.
+ *
+ * The agent's scoped context inherits this plugin's dependency API, and the
+ * frontend's composition (agent presets, prompt sections, tools) reads those
+ * services from the agent context during setup. A missing one fails the
+ * session creation with `cannot get property "<service>" without inject`.
+ * The set mirrors `@deepseek-ai/dsh-agent-loop`, the factory this plugin
+ * replaces.
+ */
+export const inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt', 'sessionProjections']
 
 export interface Config {
   /** Pi executable; defaults to `pi` on PATH. */
