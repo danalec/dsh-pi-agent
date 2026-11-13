@@ -190,8 +190,10 @@ npm test            # 先构建，再跑 node:test 测试套件
 
 ## 许可证
 
-三选一授权：**MIT**、**Apache-2.0** 或 **商业许可**（`MIT OR Apache-2.0 OR LicenseRef-Proprietary`）。
+二选一授权：**MIT** 或 **Apache-2.0**（`MIT OR Apache-2.0`）。两者都是完整且免费的开源授权。
 
-MIT 与 Apache-2.0 是完整且免费的开源授权，商业许可的存在不会对它们施加任何限制。商业许可适用于需要开源授权无法提供的条款：闭源分发且无需保留署名、版权方提供的担保或赔偿，以及豁免 Apache-2.0 的专利授权；其约束性条款以另行签署的书面协议为准。
+在企业级再分发场景中 Apache-2.0 更合适：除广泛的著作权许可外，它还授予专利许可（第 3 条），若你对著作权人提起专利诉讼，该专利许可即终止。MIT 是两者中更宽松的一个：条款更短，没有明确的专利授予，也不需要 NOTICE 文件。
 
-完整文本：[`LICENSE`](LICENSE)、[`LICENSE-MIT`](LICENSE-MIT)、[`LICENSE-APACHE`](LICENSE-APACHE)、[`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL)。
+支持、担保与赔偿不包含在任何一种授权之内。这属于与著作权人另行签订的协议，而非第三种授权选项。
+
+完整文本：[`LICENSE`](LICENSE)、[`LICENSE-MIT`](LICENSE-MIT)、[`LICENSE-APACHE`](LICENSE-APACHE)。

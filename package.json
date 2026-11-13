@@ -1,6 +1,6 @@
 {
   "name": "dsh-pi-loop",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Run the Pi coding agent (@earendil-works/pi-coding-agent) as the agent loop inside DeepSeek Harness (@deepseek-ai/dsh): drive pi --mode rpc from the official DSH web UI, swap subagents to pi, zero prompt injection.",
   "type": "module",
   "main": "dist/index.js",
@@ -19,8 +19,7 @@
     "dist",
     "LICENSE",
     "LICENSE-MIT",
-    "LICENSE-APACHE",
-    "LICENSE-COMMERCIAL"
+    "LICENSE-APACHE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -67,7 +66,7 @@
   "engines": {
     "node": ">=20.11.0"
   },
-  "license": "MIT OR Apache-2.0 OR LicenseRef-Proprietary",
+  "license": "MIT OR Apache-2.0",
   "types": "dist/index.d.ts",
   "keywords": [
     "deepseek-harness",

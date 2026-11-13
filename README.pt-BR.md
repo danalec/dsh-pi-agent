@@ -268,16 +268,12 @@ A suíte cobre a reconstrução do histórico (mapeamento de blocos, razões de 
 
 ## Licença
 
-Tri-licenciada, à sua escolha: **MIT**, **Apache-2.0** ou uma
-**Licença Comercial** (`MIT OR Apache-2.0 OR LicenseRef-Proprietary`).
+Duplamente licenciada, à sua escolha: **MIT** ou **Apache-2.0**
+(`MIT OR Apache-2.0`). As duas são completas e gratuitas nos seus próprios termos.
 
-As opções MIT e Apache-2.0 são completas e gratuitas nos seus próprios
-termos — a opção comercial nunca as restringe. A opção comercial cobre
-redistribuição closed-source sem obrigação de atribuição, garantia ou
-indenização do detentor dos direitos autorais, e isenção da concessão de
-patentes do Apache-2.0; seus termos vinculantes vêm de um acordo escrito
-separado.
+O Apache-2.0 é a escolha melhor para redistribuição corporativa: além da licença ampla de direitos autorais, ele concede uma licença de patentes (seção 3) que termina se você iniciar litígio de patente contra o detentor dos direitos autorais. O MIT é o mais permissivo dos dois — mais curto, sem concessão expressa de patentes, sem arquivo NOTICE.
+
+Suporte, garantias e indenizações não são concedidos por nenhuma das duas licenças. Isso é um acordo separado com o detentor dos direitos autorais, não uma terceira opção de licença.
 
 Textos completos: [`LICENSE`](LICENSE), [`LICENSE-MIT`](LICENSE-MIT),
-[`LICENSE-APACHE`](LICENSE-APACHE),
-[`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL).
+[`LICENSE-APACHE`](LICENSE-APACHE).

@@ -311,15 +311,17 @@ node tools/dsh-e2e.mjs
 
 ## License
 
-Triple-licensed, at your option: **MIT**, **Apache-2.0**, or a
-**Commercial License** (`MIT OR Apache-2.0 OR LicenseRef-Proprietary`).
+Dual-licensed, at your option: **MIT** or **Apache-2.0**
+(`MIT OR Apache-2.0`). Both are complete and free on their own terms.
 
-The MIT and Apache-2.0 options are complete and free on their own terms —
-the commercial option never restricts them. The commercial option covers
-closed-source redistribution without attribution obligations, a warranty or
-indemnity from the copyright holder, and relief from the Apache-2.0 patent
-grant; its binding terms come from a separate written agreement.
+Apache-2.0 is the better fit for corporate redistribution: besides the broad
+copyright license, it grants a patent license (section 3) that terminates if
+you initiate patent litigation against the copyright holder. MIT is the more
+permissive of the two — shorter, no express patent grant, no NOTICE file.
+
+Support, warranties and indemnification are not granted by either license.
+They are a separate agreement with the copyright holder, not a third license
+option.
 
 Full texts: [`LICENSE`](LICENSE), [`LICENSE-MIT`](LICENSE-MIT),
-[`LICENSE-APACHE`](LICENSE-APACHE),
-[`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL).
+[`LICENSE-APACHE`](LICENSE-APACHE).

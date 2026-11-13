@@ -198,8 +198,10 @@ Node ≥ 20.11 で動作します。
 
 ## ライセンス
 
-3 つのライセンスから選択できます: **MIT**、**Apache-2.0**、または **商用ライセンス**（`MIT OR Apache-2.0 OR LicenseRef-Proprietary`）。
+2 つのライセンスから選択できます: **MIT** または **Apache-2.0**（`MIT OR Apache-2.0`）。どちらも単独で完全かつ無料のオープンソースライセンスです。
 
-MIT と Apache-2.0 はそれぞれ単独で完全かつ無料のオープンソースライセンスです — 商用ライセンスの存在がこれらを制限することはありません。商用ライセンスは、著作権者による表明義務のないクローズドソースでの再配布、保証や補償（indemnity）、そして Apache-2.0 の特許付与からの解放を対象とします。その拘束力を持つ条件は別途の書面契約によります。
+企業での再配布には Apache-2.0 が適しています。广泛な著作権許諾に加えて特許許諾（3 節）が得られ、著作権者に対して特許訴訟を提起した場合はその許諾が終了します。MIT は 2 つのうちより寛容な方で、条文が短く、特許許諾の明文規定も NOTICE ファイルもありません。
 
-全文: [`LICENSE`](LICENSE)、[`LICENSE-MIT`](LICENSE-MIT)、[`LICENSE-APACHE`](LICENSE-APACHE)、[`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL)。
+サポート、保証、indemnity はどちらのライセンスでも許諾されません。著作権者との個別契約の対象であり、第 3 のライセンス選択肢ではありません。
+
+全文: [`LICENSE`](LICENSE)、[`LICENSE-MIT`](LICENSE-MIT)、[`LICENSE-APACHE`](LICENSE-APACHE)。
