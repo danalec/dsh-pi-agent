@@ -179,6 +179,31 @@ test('the turn records the user message, the assistant message and the step', as
   agent.dispose()
 })
 
+test('a resumed agent continues the session turn sequence', async () => {
+  const ctx = new Context()
+  const session = new FakeSession('session-1')
+  const rpc = new FakeRpc()
+  // A session resumed on turn 30 must open turn 31: reopening turn 1 is a
+  // boundary the durable log rejects.
+  const agent = new PiAgent({
+    ctx,
+    session,
+    agentOptions: {},
+    rpc,
+    lastTurn: 30,
+  })
+  agent.send(userMessage('m1', 'hello'), 'next-turn', true)
+  await waitFor(() => rpc.prompts.length > 0, 2000, 'the prompt')
+  rpc.emit({ type: 'message_start', message: { role: 'assistant', content: [] } })
+  rpc.emit({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }], provider: 'anthropic', model: 'claude-x' } })
+  rpc.emit({ type: 'agent_settled', aborted: false })
+  await agent.whenIdle()
+
+  assert.equal(session.last('turn/start').data.turn, 31)
+  assert.equal(session.last('turn/end').data.turn, 31)
+  agent.dispose()
+})
+
 test('a second assistant message opens a second step', async () => {
   const { session, rpc, agent } = createAgent()
   agent.send(userMessage('m1', 'hello'), 'next-turn', true)

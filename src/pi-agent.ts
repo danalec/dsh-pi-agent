@@ -61,6 +61,14 @@ export interface PiAgentOptions {
   session: Session
   agentOptions: AgentOptions
   rpc: PiRpcClient
+  /**
+   * The session's last turn number.
+   *
+   * A resumed agent continues the session's turn sequence: the next turn is
+   * `lastTurn + 1`. Restarting at 1 would open a turn the session never
+   * opened, and the durable log would reject the boundary.
+   */
+  lastTurn?: number
   /** Diagnostics sink. */
   logger?: (line: string) => void
 }
@@ -242,6 +250,10 @@ export class PiAgent implements Agent {
     this.id = options.session.id
     this.options = options.agentOptions
     this.session = options.session
+    // A resumed session continues its turn sequence; the next turn is the
+    // next number, never 1 again.
+    this.turn = options.lastTurn ?? 0
+    this.phase = { kind: 'idle', lastTurn: this.turn }
     // DSH contract: each Agent owns a scope keyed by ITSELF (an object — the
     // scope key feeds WeakMaps downstream), and its ctx shadows `agent` with
     // an own property, so creation-window setup (`childCtx.agent`), prompt
