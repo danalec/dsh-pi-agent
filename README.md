@@ -1,5 +1,7 @@
 # dsh-pi-agent
 
+English | [中文](README.zh.md) | [Português (BR)](README.pt-BR.md) | [日本語](README.ja.md) | [Español](README.es.md)
+
 Run the [Pi coding agent](https://github.com/earendil-works/pi) ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) as the agent loop inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) ([`@deepseek-ai/dsh`](https://www.npmjs.com/package/@deepseek-ai/dsh)): a DSH `Agent` plugin that drives a headless `pi --mode rpc` child process, so DSH's frontend — session log, hooks, presets, web UI — works unchanged.
 
 > **Looking for one of these?**
@@ -122,6 +124,7 @@ Each delegation spawns a fresh `pi -p <task>` in the parent session's working di
 - [`pi`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) (`npm i -g @earendil-works/pi-coding-agent`) on `PATH` (or pass `piPath`)
 - [DSH](https://www.npmjs.com/package/@deepseek-ai/dsh) (`npm i -g @deepseek-ai/dsh`) with a profile exposing `sessions` and `agents` services (the standard frontend assembly)
 - Peer deps: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-agent`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-scope`, `@deepseek-ai/dsh-session`
+
 ## Install
 
 ```bash

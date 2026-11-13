@@ -1,5 +1,7 @@
 # dsh-pi-agent
 
+[English](README.md) | 中文 | [Português (BR)](README.pt-BR.md) | [日本語](README.ja.md) | [Español](README.es.md)
+
 把 [Pi coding agent](https://github.com/earendil-works/pi)（npm 包 [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)）作为 agent loop 跑在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（npm 包 [`@deepseek-ai/dsh`](https://www.npmjs.com/package/@deepseek-ai/dsh)）里：一个 DSH `Agent` 插件，驱动无头模式的 `pi --mode rpc` 子进程，DSH 前端（会话日志、hooks、preset、Web UI）无需任何改动即可使用。
 
 > **在找以下任何一个？**
