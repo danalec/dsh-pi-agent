@@ -8,12 +8,13 @@
  *
  * usage: node tools/dsh-e2e.mjs [cwd]
  */
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import ToolsService from '@deepseek-ai/dsh-tools'
@@ -98,6 +99,29 @@ for (const event of handle.agent.session.snapshotEvents()) {
 }
 await handle.dispose()
 
+// A session stored by another agent — or one whose agent never disposed
+// cleanly — carries no end-of-seed marker. A resume has to write that marker
+// before it appends anything else, or the session runs one sequence number
+// ahead of the store and every later append is refused with "append seq
+// mismatch".
+await new Promise(resolve => setTimeout(resolve, 1000))
+const storedFile = readdirSync(store, { withFileTypes: true })
+  .filter(entry => entry.isDirectory())
+  .map(entry => join(store, entry.name, String(id), 'session.v4.jsonl.zstd'))
+  .find(file => {
+    try { readFileSync(file); return true } catch { return false }
+  })
+if (storedFile === undefined) throw new Error('the stored session file was not found')
+const storedLines = zstdDecompressSync(readFileSync(storedFile)).toString('utf8').split('\n').filter(Boolean)
+const withoutMarker = storedLines.filter(line => {
+  try { return JSON.parse(line).type !== 'session/end-seed' } catch { return true }
+})
+if (withoutMarker.length === storedLines.length) out('the stored log carried no end-of-seed marker')
+else {
+  writeFileSync(storedFile, zstdCompressSync(withoutMarker.join('\n') + '\n'))
+  out(`stored log stripped of its end-of-seed marker: ${storedLines.length} -> ${withoutMarker.length} lines`)
+}
+
 // Resume: the persisted log must come back, and the Pi child must be handed
 // the conversation it already had.
 const resumed = await ctx.agents.resume({ resumeSessionId: id })
@@ -132,5 +156,27 @@ for (const event of resumed.agent.session.snapshotEvents()) {
   out(`  ${event.seq} ${event.type} ${summary}`)
 }
 await resumed.dispose()
+
+// The store is the ground truth. A resumed session that appends ahead of
+// the store's cursor is refused with "append seq mismatch", and that
+// refusal only shows up in the chat window, not in the agent's own log.
+const persistence = ctx.get('sessionPersistence')
+const readHandle = await persistence.open(id, 'read')
+try {
+  const stored = await readHandle.read(SessionLogOffset(0), undefined)
+  const events = stored.events
+  const contiguous = events.every((event, index) => event.seq === index)
+  out(`stored events: ${events.length} | contiguous: ${contiguous ? 'yes' : 'NO'}`)
+  if (!contiguous) {
+    out(`stored seqs: ${events.map(event => event.seq).join(', ')}`)
+    throw new Error('the stored log is not contiguous')
+  }
+  const assistants = events.filter(event => event.type === 'assistant/message').length
+  out(`stored assistant messages: ${assistants}`)
+  if (assistants < 2) throw new Error('the resumed turn never reached the store')
+} finally {
+  await readHandle.close()
+}
+
 await fiber.dispose()
 await ctx.fiber.dispose()

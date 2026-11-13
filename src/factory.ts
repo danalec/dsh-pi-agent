@@ -68,6 +68,9 @@ export interface ResolvedRoute {
   model: string
 }
 
+/** The provider that owns every Pi model id. */
+export const DEFAULT_PROVIDER = 'minimax'
+
 /**
  * Resolve the model route for one agent.
  *
@@ -81,7 +84,11 @@ export interface ResolvedRoute {
 export function resolvePiRoute(factoryModel: string | undefined, requested: AgentOptions | undefined): ResolvedRoute {
   const fallback = factoryModel ?? ''
   const slash = fallback.indexOf('/')
-  const fallbackProvider = slash > 0 ? fallback.slice(0, slash) : ''
+  // A model id without a provider belongs to Pi's own provider. A resumed
+  // session asks for no route of its own, so this fallback is what keeps the
+  // resumed session's messages carrying a model source. With no factory
+  // default at all there is no provider to borrow.
+  const fallbackProvider = slash > 0 ? fallback.slice(0, slash) : (fallback === '' ? '' : DEFAULT_PROVIDER)
   const fallbackModel = slash > 0 ? fallback.slice(slash + 1) : fallback
 
   const requestedProvider = requested?.provider !== undefined && requested.provider !== ''
@@ -145,7 +152,9 @@ export class PiAgentFactory implements AgentFactory {
 
   /**
    * Write the events a session holds but never published (its constructor
-   * seed) to the stored log.
+   * seed and the end-of-seed marker the core appends to it) to the stored
+   * log. Without this the session's next sequence number runs ahead of the
+   * store's cursor and every later append is refused.
    */
   private async appendUnstoredSuffix(
     stored: { handle: SessionHandle, storedCount: number } | undefined,
@@ -220,6 +229,10 @@ export class PiAgentFactory implements AgentFactory {
         const session = preparation.session
         const cwd = session.header.cwd ?? this.options.cwd
         const stored = PiAgentFactory.stored(handle, persisted.length + closers.length)
+        // The restored session carries an end-of-seed marker the stored log
+        // does not have. It occupies a sequence number, so it has to reach
+        // the store before the session appends anything else.
+        await this.appendUnstoredSuffix(stored, session)
         const agentHandle = await this.assembleAndPublish(
           ownerCtx,
           id,
