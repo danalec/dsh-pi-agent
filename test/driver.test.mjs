@@ -8,7 +8,12 @@ function createAgent(options = {}) {
   const ctx = new Context()
   const session = new FakeSession(options.sessionId ?? 'session-1')
   const rpc = new FakeRpc(options.rpc)
-  const agent = new PiAgent({ ctx, session, agentOptions: options.agentOptions ?? {}, rpc })
+  const agent = new PiAgent({
+    ctx,
+    session,
+    agentOptions: options.agentOptions ?? {},
+    rpc,
+  })
   return { ctx, session, rpc, agent }
 }
 

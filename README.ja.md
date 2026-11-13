@@ -1,4 +1,4 @@
-# dsh-pi-agent
+# dsh-pi-loop
 
 [English](README.md) | [中文](README.zh.md) | [Português (BR)](README.pt-BR.md) | 日本語 | [Español](README.es.md)
 
@@ -7,14 +7,14 @@
 > **こんな探apezではありませんか？**
 > - *「DeepSeek Harness / DSH の中で pi をどう使うの？」* — ここがまさにその場所になります。
 > - *「DSH の agent-loop を pi coding agent の loop に差し替えたい」* — 本プラグインはファクトリを `pi --mode rpc` 子プロセスに置き換えます。
-> - *「pi を web UI / ブラウザフロントエンドで動かしたい」* — dsh-pi-agent と公式 DSH web app の組み合わせで、pi は完全な web インターフェースを手にします。セッション永続化、hooks、プリセット、モデル選択すべて対応です。
+> - *「pi を web UI / ブラウザフロントエンドで動かしたい」* — dsh-pi-loop と公式 DSH web app の組み合わせで、pi は完全な web インターフェースを手にします。セッション永続化、hooks、プリセット、モデル選択すべて対応です。
 > - *「DSH の中で最小限でクリーンなプロンプトを使いたい」* — pi エンジンは約 300 トークンのシステムプロンプトと 4 つのツールを維持します。DSH のプロンプト組み立てはモデルに一切届きません。プロンプト注入ゼロです。
 > - *「DSH の中で Claude Code / Codex のサブエージェントを使いたい」* — DSH はそれらをネイティブにサポートしています。本プラグインは同じ方式で pi をエンジン選択肢に追加します。
 
 ```
 DSH フロントエンド（セッション、hooks、プリセット、SQLite 永続化、web UI）
         │
-dsh-pi-agent  （本プラグイン: AgentFactory + イベント変換 + 履歴ハンドオフ）
+dsh-pi-loop  （本プラグイン: AgentFactory + イベント変換 + 履歴ハンドオフ）
         │  spawn + stdio 上の JSONL
         │  コマンド: set_model / prompt / steer / abort
         ▼
@@ -96,7 +96,7 @@ pi モード:         [履歴ロード済み] ── ターン 4 ── …  （
 # Pi エンジンでのサブエージェント委譲（メイン loop の行とは独立）:
 - insert:
     - id: subagent-pi
-      name: 'dsh-pi-agent/subagent'
+      name: 'dsh-pi-loop/subagent'
       config:
         providerName: pi
         piPath: 'pi'                  # 既定は PATH からの探索
@@ -124,18 +124,23 @@ pi モード:         [履歴ロード済み] ── ターン 4 ── …  （
 ## インストール
 
 ```bash
-npm install danalec/dsh-pi-agent
+# Link the working tree: the profile always runs your checkout (rebuild, then
+# restart DSH). This is the development setup.
+dsh plugin --profile desktop add link:/path/to/dsh-pi-loop
+
+# Or install a copy of the directory (what `npm pack` would produce).
+dsh plugin --profile desktop add file:/path/to/dsh-pi-loop
 ```
 
-このパッケージは npm レジストリにはありません — 以前の `dsh-pi-agent` の
+このパッケージは npm レジストリにはありません — 以前の `dsh-pi-loop` の
 公開は取り消されています — そのため GitHub から直接インストールして
 ください。任意の DSH profile からマウントできます（Web 用の完成 profile は
 [dsh-pi](https://github.com/Micheleww/dsh-pi) を参照）。
 
 各 release にはパッケージ済みの tarball も付属します:
-[github.com/danalec/dsh-pi-agent/releases](https://github.com/danalec/dsh-pi-agent/releases)。
+[github.com/danalec/dsh-pi-loop/releases](https://github.com/danalec/dsh-pi-loop/releases)。
 
-関連: [pi エコシステム](https://github.com/earendil-works/pi) には [pi-gui](https://github.com/minghinmatthewlam/pi-gui)、[pi-hosts](https://github.com/hunvreus/pi-hosts)、[pi-zentui](https://www.npmjs.com/package/pi-zentui) もあります。DSH はサブエージェントエンジンとして [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) と [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) をネイティブにブリッジします — dsh-pi-agent は同じ形で **pi** をエンジンおよび loop の選択肢に追加します。
+関連: [pi エコシステム](https://github.com/earendil-works/pi) には [pi-gui](https://github.com/minghinmatthewlam/pi-gui)、[pi-hosts](https://github.com/hunvreus/pi-hosts)、[pi-zentui](https://www.npmjs.com/package/pi-zentui) もあります。DSH はサブエージェントエンジンとして [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) と [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) をネイティブにブリッジします — dsh-pi-loop は同じ形で **pi** をエンジンおよび loop の選択肢に追加します。
 
 ## 使い方
 
@@ -144,8 +149,8 @@ profile パッチ層（`cordis.patch.yml`）でマウントします:
 ```yaml
 # すべての新規セッションで Pi loop を使う。
 - insert:
-    - id: pi-agent
-      name: 'dsh-pi-agent'
+    - id: pi-loop
+      name: 'dsh-pi-loop'
       config:
         piPath: 'pi'                      # または絶対パス
         cwd: '/path/to/your/project'      # Pi セッションの作業ディレクトリ
@@ -153,7 +158,7 @@ profile パッチ層（`cordis.patch.yml`）でマウントします:
         debug: false
 
 # DSH 自身の loop に戻す: このエントリを無効化して agent-loop を再度有効に。
-# - id: pi-agent
+# - id: pi-loop
 #   disabled: true
 ```
 
@@ -164,7 +169,7 @@ profile パッチ層（`cordis.patch.yml`）でマウントします:
 | `piPath` | `string` | `'pi'` | Pi の実行ファイル。`PATH` から解決されます |
 | `cwd` | `string` | `process.cwd()` | Pi セッションの作業ディレクトリ |
 | `model` | `string` | — | Pi のモデルルート（`provider/model`） |
-| `debug` | `boolean` | `false` | プロトコル診断を `<tmpdir>/dsh-pi-agent.log` へ追記します |
+| `debug` | `boolean` | `false` | プロトコル診断を `<tmpdir>/dsh-pi-loop.log` へ追記します |
 
 ## プラットフォームメモ
 
@@ -174,7 +179,7 @@ profile パッチ層（`cordis.patch.yml`）でマウントします:
 
 ## デバッグ
 
-`debug: true` を設定すると、すべての RPC コマンド、イベント、子プロセスの終了、ファクトリのライフサイクル手順が `<tmpdir>/dsh-pi-agent.log`（Windows では `%TEMP%`、それ以外では `/tmp`）へ追記されます。Pi 自身の stderr も同じログへ転送されます。`debug` が off のときは sink を一切インストールしません — プロトコル層は診断を整形せず、ディスクにも触れません。
+`debug: true` を設定すると、すべての RPC コマンド、イベント、子プロセスの終了、ファクトリのライフサイクル手順が `<tmpdir>/dsh-pi-loop.log`（Windows では `%TEMP%`、それ以外では `/tmp`）へ追記されます。Pi 自身の stderr も同じログへ転送されます。`debug` が off のときは sink を一切インストールしません — プロトコル層は診断を整形せず、ディスクにも触れません。
 
 ## 開発
 

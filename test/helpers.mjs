@@ -12,6 +12,7 @@ export class FakeSession {
     this.id = id
     this.header = { version: 1, id, createdAt: Date.now(), seedLength: 0, cwd: '/tmp/project', ...header }
     this.events = []
+    this.inheritedEventCount = 0
   }
 
   append(type, data, opts) {
@@ -22,6 +23,11 @@ export class FakeSession {
     if (opts?.sourceEventSeqs !== undefined) event.sourceEventSeqs = opts.sourceEventSeqs
     this.events.push(event)
     return event
+  }
+
+  /** The session log after the fork-inherited prefix. */
+  snapshotEvents(from = 0) {
+    return this.events.slice(from)
   }
 
   get seq() {

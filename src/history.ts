@@ -184,15 +184,14 @@ function toPiToolResultMessage(
   logger?: (line: string) => void,
 ): PiMessage {
   const message = event.data.message as ToolResultMessage
-  const block = message.content[0]
-  const callId = String(block?.toolCallId ?? '')
-  const content = convertBlocks(block?.content ?? [], logger)
+  const callId = String(message.toolCallId)
+  const content = convertBlocks(message.content, logger)
   return {
     role: 'toolResult',
     content,
     toolCallId: callId,
     toolName: toolNames.get(callId) ?? 'unknown',
-    isError: block?.isError === true,
+    isError: message.isError === true,
     timestamp: event.time,
   }
 }
@@ -235,12 +234,13 @@ export function buildPiSessionFile(options: BuildPiSessionFileOptions): string {
   // Turn reasons are recorded by `turn/end`, which the log orders AFTER the
   // assistant message it describes. Collect them first, otherwise every
   // assistant message would fall back to the default stop reason.
-  for (const event of session.events) {
+  const events = session.snapshotEvents(session.inheritedEventCount)
+  for (const event of events) {
     if (event.type !== 'turn/end') continue
     finishReasons.set(event.data.turn, event.data.reason as { kind: string })
   }
 
-  for (const event of session.events) {
+  for (const event of events) {
     switch (event.type) {
       case 'tool/call':
         toolNames.set(String(event.data.callId), event.data.name)

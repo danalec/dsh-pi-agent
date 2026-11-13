@@ -1,4 +1,4 @@
-# dsh-pi-agent
+# dsh-pi-loop
 
 [English](README.md) | [中文](README.zh.md) | [Português (BR)](README.pt-BR.md) | [日本語](README.ja.md) | Español
 
@@ -7,14 +7,14 @@ Ejecuta el [Pi coding agent](https://github.com/earendil-works/pi) ([`@earendil-
 > **¿Buscas algo de esto?**
 > - *"¿Cómo uso pi dentro de DeepSeek Harness / DSH?"* — estás en el sitio correcto.
 > - *"¿Cambiar el agent-loop de DSH por el loop de pi coding agent?"* — este plugin sustituye la fábrica por un proceso hijo `pi --mode rpc`.
-> - *"¿Ejecutar pi con una web UI / frontend de navegador?"* — dsh-pi-agent + la app web oficial de DSH le da a pi la interfaz web completa: persistencia de sesión, hooks, presets, selección de modelo.
+> - *"¿Ejecutar pi con una web UI / frontend de navegador?"* — dsh-pi-loop + la app web oficial de DSH le da a pi la interfaz web completa: persistencia de sesión, hooks, presets, selección de modelo.
 > - *"¿Usar un prompt mínimo y limpio dentro de DSH?"* — el motor pi conserva su prompt de sistema de ~300 tokens y sus cuatro herramientas; el ensamblaje de prompts de DSH nunca llega al modelo. Cero inyección de prompts.
 > - *"¿Subagentes Claude Code / Codex dentro de DSH?"* — DSH ya los soporta de forma nativa; este plugin añade pi como opción de motor del mismo modo.
 
 ```
 Frontend de DSH (sesiones, hooks, presets, persistencia SQLite, web UI)
         │
-dsh-pi-agent  (este plugin: AgentFactory + traducción de eventos + traspaso de historial)
+dsh-pi-loop  (este plugin: AgentFactory + traducción de eventos + traspaso de historial)
         │  spawn + JSONL sobre stdio
         │  comandos: set_model / prompt / steer / abort
         ▼
@@ -96,7 +96,7 @@ Configuración separada del loop principal: el plugin del proveedor es su propia
 # Delegación a subagente sobre el motor Pi (independiente de la fila del loop principal):
 - insert:
     - id: subagent-pi
-      name: 'dsh-pi-agent/subagent'
+      name: 'dsh-pi-loop/subagent'
       config:
         providerName: pi
         piPath: 'pi'                  # por defecto se busca en el PATH
@@ -124,18 +124,23 @@ Cada delegación lanza un `pi -p <tarea>` nuevo en el directorio de trabajo de l
 ## Instalación
 
 ```bash
-npm install danalec/dsh-pi-agent
+# Link the working tree: the profile always runs your checkout (rebuild, then
+# restart DSH). This is the development setup.
+dsh plugin --profile desktop add link:/path/to/dsh-pi-loop
+
+# Or install a copy of the directory (what `npm pack` would produce).
+dsh plugin --profile desktop add file:/path/to/dsh-pi-loop
 ```
 
 El paquete no está en el registro de npm — la publicación anterior de
-`dsh-pi-agent` fue despublicada — así que instálalo directamente desde
+`dsh-pi-loop` fue despublicada — así que instálalo directamente desde
 GitHub. Móntalo desde cualquier profile de DSH (véase [dsh-pi](https://github.com/Micheleww/dsh-pi)
 para un profile web listo).
 
 Cada release también incluye el tarball empaquetado:
-[github.com/danalec/dsh-pi-agent/releases](https://github.com/danalec/dsh-pi-agent/releases).
+[github.com/danalec/dsh-pi-loop/releases](https://github.com/danalec/dsh-pi-loop/releases).
 
-Relacionado: el [ecosistema pi](https://github.com/earendil-works/pi) también tiene [pi-gui](https://github.com/minghinmatthewlam/pi-gui), [pi-hosts](https://github.com/hunvreus/pi-hosts), [pi-zentui](https://www.npmjs.com/package/pi-zentui); DSH hace de puente nativo con [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) y [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) como motores de subagente — dsh-pi-agent añade **pi** como opción de motor y de loop del mismo modo.
+Relacionado: el [ecosistema pi](https://github.com/earendil-works/pi) también tiene [pi-gui](https://github.com/minghinmatthewlam/pi-gui), [pi-hosts](https://github.com/hunvreus/pi-hosts), [pi-zentui](https://www.npmjs.com/package/pi-zentui); DSH hace de puente nativo con [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) y [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) como motores de subagente — dsh-pi-loop añade **pi** como opción de motor y de loop del mismo modo.
 
 ## Uso
 
@@ -144,8 +149,8 @@ Móntalo en la capa de parches del profile (`cordis.patch.yml`):
 ```yaml
 # Usa el loop de Pi para todas las sesiones nuevas.
 - insert:
-    - id: pi-agent
-      name: 'dsh-pi-agent'
+    - id: pi-loop
+      name: 'dsh-pi-loop'
       config:
         piPath: 'pi'                      # o una ruta absoluta
         cwd: '/path/to/your/project'      # directorio de trabajo de las sesiones Pi
@@ -153,7 +158,7 @@ Móntalo en la capa de parches del profile (`cordis.patch.yml`):
         debug: false
 
 # Vuelve al loop del propio DSH: desactiva esta entrada y vuelve a activar agent-loop.
-# - id: pi-agent
+# - id: pi-loop
 #   disabled: true
 ```
 
@@ -164,7 +169,7 @@ Móntalo en la capa de parches del profile (`cordis.patch.yml`):
 | `piPath` | `string` | `'pi'` | Ejecutable de Pi; se resuelve desde el `PATH` |
 | `cwd` | `string` | `process.cwd()` | Directorio de trabajo de las sesiones Pi |
 | `model` | `string` | — | Ruta de modelo de Pi (`provider/model`) |
-| `debug` | `boolean` | `false` | Añade diagnósticos del protocolo a `<tmpdir>/dsh-pi-agent.log` |
+| `debug` | `boolean` | `false` | Añade diagnósticos del protocolo a `<tmpdir>/dsh-pi-loop.log` |
 
 ## Notas de plataforma
 
@@ -174,7 +179,7 @@ Móntalo en la capa de parches del profile (`cordis.patch.yml`):
 
 ## Depuración
 
-Activa `debug: true`: cada comando RPC, evento, salida del proceso hijo y paso del ciclo de vida de la fábrica se añade a `<tmpdir>/dsh-pi-agent.log` (`%TEMP%` en Windows, `/tmp` en el resto). El stderr del propio Pi se reenvía al mismo log. Con `debug` apagado no se instala ningún sink: la capa de protocolo no formatea ningún diagnóstico y no toca el disco.
+Activa `debug: true`: cada comando RPC, evento, salida del proceso hijo y paso del ciclo de vida de la fábrica se añade a `<tmpdir>/dsh-pi-loop.log` (`%TEMP%` en Windows, `/tmp` en el resto). El stderr del propio Pi se reenvía al mismo log. Con `debug` apagado no se instala ningún sink: la capa de protocolo no formatea ningún diagnóstico y no toca el disco.
 
 ## Desarrollo
 
