@@ -15,6 +15,9 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import LlmRuntime from '@deepseek-ai/dsh-llm'
+import ToolsService from '@deepseek-ai/dsh-tools'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { apply as applyPersistence, Config as PersistenceConfig, name as persistenceName } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { apply, Config, inject, name } from '../dist/index.js'
 
@@ -26,6 +29,11 @@ const ctx = new Context()
 await ctx.plugin(SessionStore)
 await ctx.plugin(AgentRegistry)
 await ctx.plugin(SessionProjectionRegistry)
+// The agent scope resolves these through the plugin's dependency API, and the
+// frontend's composition reads them from the agent context.
+await ctx.plugin(LlmRuntime)
+await ctx.plugin(ToolsService)
+await ctx.plugin(SystemPrompt)
 await ctx.plugin({ name: persistenceName, Config: PersistenceConfig, apply: applyPersistence }, { root: store })
 
 const fiber = await ctx.plugin({
@@ -56,6 +64,16 @@ const id = SessionId(`e2e-${Date.now().toString(36)}`)
 const handle = await ctx.agents.create({
   sessionId: id,
   agentOptions: { provider: 'minimax', model: 'MiniMax-M3.1-Flash-Preview' },
+  // The frontend composes the agent in this window (presets, prompt
+  // sections, tools) and reads those services from the agent context: a scope
+  // that cannot resolve them fails the whole session creation.
+  setup: (agentCtx) => {
+    // Resolving the services is the point: the frontend's composition reads
+    // them from the agent context.
+    void agentCtx.systemPrompt
+    void agentCtx.tools
+    void agentCtx.llm
+  },
 })
 out(`agent created: ${String(id)}`)
 out(`agent status: ${handle.agent.status}`)
