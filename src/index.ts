@@ -63,6 +63,21 @@ export type { PiFactoryOptions, PiSessionStartSource } from './factory.ts'
 export const name = 'pi-loop'
 
 /**
+ * Register the standard `modelSelection` projection.
+ *
+ * The frontend reads a session's model from that projection. A driver that
+ * owns the factory slot but does not own the plugin's `apply` (a router that
+ * delegates to this driver) registers it through this helper.
+ *
+ * @returns a promise that settles when the projection is registered.
+ */
+export function registerModelSelectionProjection(ctx: Context): Promise<unknown> {
+  return ctx.sessionProjections.register(modelSelectionProjectionDefinition).catch((error: unknown) => {
+    ctx.logger.warn(`pi-loop: could not register the model selection projection: ${String(error)}`)
+  })
+}
+
+/**
  * Services the agent scope must be able to resolve.
  *
  * The agent's scoped context inherits this plugin's dependency API, and the
