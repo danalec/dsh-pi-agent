@@ -9,18 +9,21 @@ function readHeader(asarPath) {
   const fd = fs.openSync(asarPath, 'r')
   const head = Buffer.alloc(16)
   fs.readSync(fd, head, 0, 16, 0)
+  const base = 8 + head.readUInt32LE(4)
   const headerSize = head.readUInt32LE(12)
   const buf = Buffer.alloc(headerSize)
   fs.readSync(fd, buf, 0, headerSize, 16)
   fs.closeSync(fd)
-  return { header: JSON.parse(buf.toString('utf8')), base: 16 + headerSize }
+  return { header: JSON.parse(buf.toString('utf8')), base }
 }
 
 function walk(files, prefix, out) {
   for (const [name, entry] of Object.entries(files)) {
     const p = prefix ? `${prefix}/${name}` : name
     if (entry.files) walk(entry.files, p, out)
-    else out.push({ path: p, size: entry.size, offset: entry.offset })
+    else if (!entry.unpacked && entry.offset !== undefined) {
+      out.push({ path: p, size: entry.size, offset: entry.offset })
+    }
   }
   return out
 }

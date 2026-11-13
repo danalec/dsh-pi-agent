@@ -18,6 +18,7 @@ import { copyFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import * as zlib from 'node:zlib'
 import { ToolCallRecovery } from '@deepseek-ai/dsh-session'
+import { AssistantStreamAccumulator } from '@deepseek-ai/dsh-llm'
 
 const file = process.argv[2]
 const dry = process.argv.includes('--dry')
@@ -65,11 +66,28 @@ for (const [index, event] of body.entries()) {
   current = undefined
 }
 
-if (groups.length === 0) {
+let needsStreamRepair = false
+for (const event of body) {
+  if (event.type === 'assistant/message' && Array.isArray(event.data?.stream)) {
+    for (const item of event.data.stream) {
+      if (!item.type && item.chunk) {
+        needsStreamRepair = true
+        item.type = 'chunk'
+      }
+    }
+  }
+}
+
+if (groups.length === 0 && !needsStreamRepair) {
   console.log('nothing to repair')
   process.exit(0)
 }
-console.log(`unadvertised tool calls: ${groups.reduce((sum, group) => sum + group.indexes.length, 0)} in ${groups.length} groups`)
+if (groups.length > 0) {
+  console.log(`unadvertised tool calls: ${groups.reduce((sum, group) => sum + group.indexes.length, 0)} in ${groups.length} groups`)
+}
+if (needsStreamRepair) {
+  console.log('untyped stream chunks detected and normalized')
+}
 
 /** Build the assistant message that advertises one group of calls. */
 const advertisement = (group) => {
@@ -82,16 +100,20 @@ const advertisement = (group) => {
     name: call.data.name,
     arguments: call.data.arguments,
   }))
-  const stream = calls.map((call, index) => ({
-    time: call.time,
-    chunk: {
-      type: 'tool-call-delta',
-      index,
-      id: call.data.callId,
-      name: call.data.name,
-      argumentsDelta: call.data.arguments,
-    },
-  }))
+  const accumulator = new AssistantStreamAccumulator()
+  for (const [index, call] of calls.entries()) {
+    accumulator.push({
+      time: call.time,
+      chunk: {
+        type: 'tool-call-delta',
+        index,
+        id: call.data.callId,
+        name: call.data.name,
+        argumentsDelta: call.data.arguments,
+      },
+    })
+  }
+  const stream = accumulator.snapshot()
   const message = template?.data?.message ?? {}
   return {
     type: 'assistant/message',
