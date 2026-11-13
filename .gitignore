@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.log
+*.tgz
+.DS_Store
+coverage/
+AGENTS.md

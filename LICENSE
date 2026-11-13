@@ -1,0 +1,28 @@
+dsh-pi-loop
+===========
+
+Copyright (c) 2026 Micheleww
+
+This software is available under TWO alternative licenses, at your option:
+
+  1. MIT License                    — see LICENSE-MIT
+  2. Apache License, Version 2.0    — see LICENSE-APACHE
+
+SPDX-License-Identifier: MIT OR Apache-2.0
+
+Both licenses are complete and freely usable on their own terms. Pick
+whichever suits the way you distribute the software.
+
+Apache-2.0 is the better fit for corporate redistribution: besides the broad
+copyright license, it grants a patent license (section 3) that terminates if
+you initiate patent litigation against the copyright holder. MIT is the more
+permissive of the two: shorter, no express patent grant, no NOTICE file.
+
+The full text of each license ships with this package:
+
+  LICENSE-MIT         the MIT License
+  LICENSE-APACHE      the Apache License, Version 2.0
+
+Support, warranties and indemnification are not granted by either license.
+They are a separate agreement with the copyright holder, not a third license
+option.
