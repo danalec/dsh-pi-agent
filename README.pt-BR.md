@@ -1,4 +1,4 @@
-# dsh-pi-agent
+# dsh-pi-loop
 
 [English](README.md) | [中文](README.zh.md) | Português (BR) | [日本語](README.ja.md) | [Español](README.es.md)
 
@@ -7,14 +7,14 @@ Execute o [Pi coding agent](https://github.com/earendil-works/pi) ([`@earendil-w
 > **Procurando alguma destas coisas?**
 > - *"Como uso o pi dentro do DeepSeek Harness / DSH?"* — você está no lugar certo.
 > - *"Trocar o agent-loop do DSH pelo loop do pi coding agent?"* — este plugin substitui a fábrica por um processo filho `pi --mode rpc`.
-> - *"Rodar o pi com uma web UI / frontend de navegador?"* — dsh-pi-agent + o app web oficial do DSH dá ao pi a interface web completa: persistência de sessão, hooks, presets, seleção de modelo.
+> - *"Rodar o pi com uma web UI / frontend de navegador?"* — dsh-pi-loop + o app web oficial do DSH dá ao pi a interface web completa: persistência de sessão, hooks, presets, seleção de modelo.
 > - *"Usar um prompt mínimo e limpo dentro do DSH?"* — o motor pi mantém seu prompt de sistema de ~300 tokens e suas quatro ferramentas; a montagem de prompt do DSH nunca chega ao modelo. Zero injeção de prompt.
 > - *"Subagentes Claude Code / Codex dentro do DSH?"* — o DSH já suporta isso nativamente; este plugin adiciona o pi como opção de motor da mesma forma.
 
 ```
 Frontend do DSH (sessões, hooks, presets, persistência SQLite, web UI)
         │
-dsh-pi-agent  (este plugin: AgentFactory + tradução de eventos + passagem de histórico)
+dsh-pi-loop  (este plugin: AgentFactory + tradução de eventos + passagem de histórico)
         │  spawn + JSONL sobre stdio
         │  comandos: set_model / prompt / steer / abort
         ▼
@@ -96,7 +96,7 @@ Configuração separada do loop principal: o plugin do provider é sua própria 
 # Delegação de subagente no motor Pi (independente da linha do loop principal):
 - insert:
     - id: subagent-pi
-      name: 'dsh-pi-agent/subagent'
+      name: 'dsh-pi-loop/subagent'
       config:
         providerName: pi
         piPath: 'pi'                  # padrão: busca no PATH
@@ -124,18 +124,23 @@ Cada delegação spawna um `pi -p <tarefa>` novo no diretório de trabalho da se
 ## Instalação
 
 ```bash
-npm install danalec/dsh-pi-agent
+# Link the working tree: the profile always runs your checkout (rebuild, then
+# restart DSH). This is the development setup.
+dsh plugin --profile desktop add link:/path/to/dsh-pi-loop
+
+# Or install a copy of the directory (what `npm pack` would produce).
+dsh plugin --profile desktop add file:/path/to/dsh-pi-loop
 ```
 
 O pacote não está no registro do npm — a publicação anterior de
-`dsh-pi-agent` foi despublicada — então instale direto do GitHub. Monte-o
+`dsh-pi-loop` foi despublicada — então instale direto do GitHub. Monte-o
 a partir de qualquer profile do DSH (veja [dsh-pi](https://github.com/Micheleww/dsh-pi)
 para um profile web pronto).
 
 Cada release também traz o tarball empacotado:
-[github.com/danalec/dsh-pi-agent/releases](https://github.com/danalec/dsh-pi-agent/releases).
+[github.com/danalec/dsh-pi-loop/releases](https://github.com/danalec/dsh-pi-loop/releases).
 
-Relacionado: o [ecossistema pi](https://github.com/earendil-works/pi) também tem [pi-gui](https://github.com/minghinmatthewlam/pi-gui), [pi-hosts](https://github.com/hunvreus/pi-hosts), [pi-zentui](https://www.npmjs.com/package/pi-zentui); o DSH faz ponte nativamente com [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) e [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) como motores de subagente — o dsh-pi-agent adiciona o **pi** como opção de motor e de loop da mesma forma.
+Relacionado: o [ecossistema pi](https://github.com/earendil-works/pi) também tem [pi-gui](https://github.com/minghinmatthewlam/pi-gui), [pi-hosts](https://github.com/hunvreus/pi-hosts), [pi-zentui](https://www.npmjs.com/package/pi-zentui); o DSH faz ponte nativamente com [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) e [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) como motores de subagente — o dsh-pi-loop adiciona o **pi** como opção de motor e de loop da mesma forma.
 
 ## Uso
 
@@ -144,8 +149,8 @@ Monte na camada de patch do profile (`cordis.patch.yml`):
 ```yaml
 # Use o loop do Pi para todas as novas sessões.
 - insert:
-    - id: pi-agent
-      name: 'dsh-pi-agent'
+    - id: pi-loop
+      name: 'dsh-pi-loop'
       config:
         piPath: 'pi'                      # ou um caminho absoluto
         cwd: '/path/to/your/project'      # diretório de trabalho das sessões Pi
@@ -153,7 +158,7 @@ Monte na camada de patch do profile (`cordis.patch.yml`):
         debug: false
 
 # Volte ao loop do próprio DSH: desabilite esta entrada e reative o agent-loop.
-# - id: pi-agent
+# - id: pi-loop
 #   disabled: true
 ```
 
@@ -164,7 +169,7 @@ Monte na camada de patch do profile (`cordis.patch.yml`):
 | `piPath` | `string` | `'pi'` | Executável do Pi; resolvido a partir do `PATH` |
 | `cwd` | `string` | `process.cwd()` | Diretório de trabalho das sessões Pi |
 | `model` | `string` | — | Rota de modelo do Pi (`provider/model`) |
-| `debug` | `boolean` | `false` | Anexa diagnósticos do protocolo a `<tmpdir>/dsh-pi-agent.log` |
+| `debug` | `boolean` | `false` | Anexa diagnósticos do protocolo a `<tmpdir>/dsh-pi-loop.log` |
 
 ## Notas de plataforma
 
@@ -174,7 +179,7 @@ Monte na camada de patch do profile (`cordis.patch.yml`):
 
 ## Depuração
 
-Defina `debug: true`: cada comando RPC, evento, saída do processo filho e passo de ciclo de vida da fábrica é anexado a `<tmpdir>/dsh-pi-agent.log` (`%TEMP%` no Windows, `/tmp` nos demais). O stderr do próprio Pi é encaminhado para o mesmo log. Com `debug` desligado nenhum sink é instalado — a camada de protocolo não formata nenhum diagnóstico e não toca o disco.
+Defina `debug: true`: cada comando RPC, evento, saída do processo filho e passo de ciclo de vida da fábrica é anexado a `<tmpdir>/dsh-pi-loop.log` (`%TEMP%` no Windows, `/tmp` nos demais). O stderr do próprio Pi é encaminhado para o mesmo log. Com `debug` desligado nenhum sink é instalado — a camada de protocolo não formata nenhum diagnóstico e não toca o disco.
 
 ## Desenvolvimento
 

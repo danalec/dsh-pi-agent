@@ -17,7 +17,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import {
-  emitAgentEvent,
+  type Agent,
   type AgentFactory,
   type AgentHandle,
   type AgentOptions,
@@ -41,6 +41,13 @@ export interface PiFactoryOptions {
   cwd: string
   /** Pi model route (`provider/model`, e.g. `anthropic/claude-sonnet-4-5`). */
   model?: string
+  /**
+   * Ignore the route DSH requests for a session and always use `model`.
+   *
+   * DSH's own providers are not Pi providers: a session created with the
+   * frontend's model picker would otherwise hand Pi a route Pi refuses.
+   */
+  pinModel?: boolean
   /** Diagnostics sink; omit to keep quiet. */
   logger?: (line: string) => void
   /** Lifecycle trace sink (apply/createAgent/resume); omit to keep quiet. */
@@ -120,6 +127,7 @@ export class PiAgentFactory implements AgentFactory {
         session,
         cwd,
         options.agentOptions,
+        options.parentAgent,
         options.signal,
         options.setup,
         'startup',
@@ -150,6 +158,7 @@ export class PiAgentFactory implements AgentFactory {
           session,
           cwd,
           options.agentOptions,
+          options.parentAgent,
           options.signal,
           options.setup,
           'resume',
@@ -169,7 +178,7 @@ export class PiAgentFactory implements AgentFactory {
    * Resolve the model route for one agent.
    */
   private resolveRoute(requested: AgentOptions | undefined): ResolvedRoute {
-    return resolvePiRoute(this.options.model, requested)
+    return resolvePiRoute(this.options.model, this.options.pinModel === true ? undefined : requested)
   }
 
   /** Mint the Pi RPC child, build the scoped PiAgent, and publish the pair. */
@@ -179,6 +188,7 @@ export class PiAgentFactory implements AgentFactory {
     session: Session,
     cwd: string,
     agentOptions: AgentOptions | undefined,
+    parentAgent: Agent | undefined,
     signal: AbortSignal | undefined,
     setup: CreateAgentOptions['setup'],
     source: PiSessionStartSource,
@@ -249,7 +259,7 @@ export class PiAgentFactory implements AgentFactory {
     try {
       if (setup !== undefined) {
         try {
-          const setupCommit = await setup(agent.ctx)
+          const setupCommit = await setup(agent.ctx, agent)
           setupCommit?.commit()
         } catch (error: unknown) {
           this.options.trace?.(`setup FAILED id=${String(id)}: ${String(error)}`)
@@ -257,10 +267,11 @@ export class PiAgentFactory implements AgentFactory {
         }
       }
       detachSession = agent.ctx.sessions.enter(session)
-      detachAgent = this.registryCtx.agents.enter(agent, ownerCtx.agent)
+      detachAgent = this.registryCtx.agents.enter(agent, parentAgent)
       agent.ctx.sessions.announce(session)
-      this.registryCtx.agents.announce(agent)
-      emitAgentEvent(this.registryCtx, agent, 'agent/session-start', { source })
+      // The registry announces the agent and runs the `agent/created`
+      // listeners with the creation source (fresh session or resume).
+      await this.registryCtx.agents.announce(agent, source)
       return { agent, dispose: () => dispose().then(() => undefined) }
     } catch (error: unknown) {
       await unfollowOwner?.()

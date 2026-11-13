@@ -41,12 +41,12 @@ test('a tool result carries the tool output, not the Pi envelope', async () => {
 
   const result = session.last('tool/result')
   assert.ok(result, 'a tool/result event was recorded')
-  // DSH's ToolResultMessage carries one tool-result block; its content holds
-  // the model-facing blocks.
-  const block = result.data.message.content[0]
-  assert.equal(block.type, 'tool-result')
-  assert.equal(block.toolCallId, 'call_1')
-  assert.deepEqual(block.content, [{ type: 'text', text: 'file body' }])
+  // DSH's ToolResultMessage carries the model-facing blocks directly and
+  // names the call it answers.
+  const message = result.data.message
+  assert.equal(message.toolCallId, 'call_1')
+  assert.equal(message.isError, false)
+  assert.deepEqual(message.content, [{ type: 'text', text: 'file body' }])
   agent.dispose()
 })
 
@@ -58,15 +58,19 @@ test('a streamed tool call carries the id announced by toolcall_start', async ()
   rpc.emit({ type: 'message_start', message: { role: 'assistant', content: [] } })
   rpc.emit({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_start', contentIndex: 0, id: 'call_1', toolName: 'read' } })
   rpc.emit({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', contentIndex: 0, delta: '{"path":' } })
+  rpc.emit({ type: 'message_end', message: { role: 'assistant', content: [], provider: 'anthropic', model: 'claude-x' } })
   rpc.emit({ type: 'agent_settled', aborted: false })
   await agent.whenIdle()
 
-  const chunk = session.last('assistant/chunk')
-  assert.ok(chunk, 'an assistant/chunk event was recorded')
-  assert.equal(chunk.data.chunk.type, 'tool-call-delta')
-  assert.equal(chunk.data.chunk.id, 'call_1')
-  assert.equal(chunk.data.chunk.name, 'read')
-  assert.equal(chunk.data.chunk.argumentsDelta, '{"path":')
+  // The assistant message embeds the compact provider stream.
+  const message = session.last('assistant/message')
+  assert.ok(message, 'an assistant/message event was recorded')
+  const records = message.data.stream
+  assert.equal(records.length, 1)
+  assert.equal(records[0].type, 'tool-call-chunks')
+  assert.equal(records[0].id, 'call_1')
+  assert.equal(records[0].name, 'read')
+  assert.deepEqual(records[0].args, ['{"path":'])
   agent.dispose()
 })
 

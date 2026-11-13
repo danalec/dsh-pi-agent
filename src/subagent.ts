@@ -16,7 +16,7 @@
  *
  * ```yaml
  * - id: subagent-pi
- *   name: 'dsh-pi-agent/subagent'
+ *   name: 'dsh-pi-loop/subagent'
  *   config:
  *     providerName: pi
  *
@@ -87,14 +87,13 @@ function promptText(prompt: readonly ContentBlock[]): string {
     .trim()
 }
 
-/** Resolve the child cwd: configured override, else the parent session's cwd. */
+/** Resolve the child cwd: configured override, else the request's resolved cwd. */
 function resolveCwd(configured: string | undefined, request: ResolvedSubagentStartRequest): string {
   if (configured !== undefined && configured !== '') return configured
-  const parentCwd = request.parent.session.header.cwd
-  if (parentCwd === undefined) {
-    throw new Error('subagent-pi: parent session has no cwd and no cwd override is configured')
+  if (request.cwd === undefined || request.cwd === '') {
+    throw new Error('subagent-pi: the request carries no cwd and no cwd override is configured')
   }
-  return parentCwd
+  return request.cwd
 }
 
 /** Truncate text to a UTF-8 byte budget. */
@@ -105,7 +104,12 @@ function clampUtf8(text: string, maxBytes: number): string {
 }
 
 class PiSubagentProvider implements SubagentProvider {
-  readonly capabilities: SubagentCapabilities = { outputSchema: false, depthLimit: false, toolFilter: false, persona: false }
+  readonly capabilities: SubagentCapabilities = {
+    agentOptions: false,
+    agentPreset: false,
+    outputSchema: false,
+    depthLimit: false,
+  }
   // The child is a fresh pi process: no parent conversation crosses the boundary.
   readonly inheritsParentContext = false
 
@@ -125,7 +129,6 @@ class PiSubagentProvider implements SubagentProvider {
 
     const cwd = resolveCwd(this.config.cwd, request)
     const id = SessionId(`pi-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`)
-
     const args = ['-p', ...(this.config.args ?? [])]
     if (this.config.model !== undefined && this.config.model !== '') {
       args.push('--model', this.config.model)
@@ -157,7 +160,6 @@ class PiSubagentProvider implements SubagentProvider {
 
     return {
       id,
-      localAgent: undefined,
       result,
       dispose: async () => {
         controller.abort()

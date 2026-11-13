@@ -6,7 +6,12 @@ import { join } from 'node:path'
 import { buildPiSessionFile } from '../dist/history.js'
 
 function session(events, id = 'session-1') {
-  return { id, header: { seedLength: 0 }, events }
+  return {
+    id,
+    header: { seedLength: 0 },
+    inheritedEventCount: 0,
+    snapshotEvents: (from = 0) => events.slice(from),
+  }
 }
 
 function userMessage(seq, text) {
@@ -150,13 +155,10 @@ test('a tool result keeps every content block and recovers the tool name', () =>
             step: 1,
             message: {
               id: 't1',
-              role: 'user',
-              content: [{
-                type: 'tool-result',
-                toolCallId: 'c1',
-                content: [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }],
-                isError: false,
-              }],
+              role: 'tool',
+              toolCallId: 'c1',
+              content: [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }],
+              isError: false,
               source: { kind: 'tool', name: 'read' },
             },
           },

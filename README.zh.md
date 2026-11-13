@@ -1,4 +1,4 @@
-# dsh-pi-agent
+# dsh-pi-loop
 
 [English](README.md) | 中文 | [Português (BR)](README.pt-BR.md) | [日本語](README.ja.md) | [Español](README.es.md)
 
@@ -7,14 +7,14 @@
 > **在找以下任何一个？**
 > - *“怎么在 DeepSeek Harness / DSH 里用 pi？”* —— 来对地方了。
 > - *“把 DSH 的 agent-loop 换成 pi coding agent 的 loop？”* —— 本插件用 `pi --mode rpc` 子进程替换工厂。
-> - *“给 pi 配一个 Web UI / 浏览器前端？”* —— dsh-pi-agent + 官方 DSH web app 给 pi 完整的 Web 界面：会话持久化、hooks、preset、模型切换。
+> - *“给 pi 配一个 Web UI / 浏览器前端？”* —— dsh-pi-loop + 官方 DSH web app 给 pi 完整的 Web 界面：会话持久化、hooks、preset、模型切换。
 > - *“在 DSH 里用极简纯净的提示词？”* —— pi 引擎保持 ~300 token 系统提示词和四工具，DSH 的提示词组装永远到不了模型面前。零提示词注入。
 > - *“DSH 里能不能像接 Claude Code / Codex 那样接 pi？”* —— 可以，本插件就是把 pi 加为同等的引擎选项。
 
 ```
 DSH 前端（会话、hooks、preset、SQLite 持久化、Web UI）
         │
-dsh-pi-agent（本插件：AgentFactory + 事件翻译 + 历史衔接）
+dsh-pi-loop（本插件：AgentFactory + 事件翻译 + 历史衔接）
         │  spawn 子进程 + stdio 上的 JSONL 协议
         │  命令：set_model / prompt / steer / abort
         ▼
@@ -96,7 +96,7 @@ Pi 模式：         [历史已加载] ── 第 4 轮 ── …  （Pi loop�
 # Subagent 委派走 Pi 引擎（与主 loop 行互不影响）：
 - insert:
     - id: subagent-pi
-      name: 'dsh-pi-agent/subagent'
+      name: 'dsh-pi-loop/subagent'
       config:
         providerName: pi
         piPath: 'pi'                  # 默认从 PATH 查找
@@ -124,13 +124,16 @@ Pi 模式：         [历史已加载] ── 第 4 轮 ── …  （Pi loop�
 ## 安装
 
 ```bash
-# 在你的 DSH 检出目录内（或 profile patch 可加载的任意位置）
-npm install danalec/dsh-pi-agent
+# 链接本地工作树：profile 始终运行你的检出（重新构建后重启 DSH 即可）。这是开发用的方式。
+dsh plugin --profile desktop add link:/path/to/dsh-pi-loop
+
+# 或安装目录副本（等同于 npm pack 的产物）。
+dsh plugin --profile desktop add file:/path/to/dsh-pi-loop
 ```
 
-该包不在 npm registry 上——此前发布的 `dsh-pi-agent` 版本已被 unpublish——因此请直接从 GitHub 安装。
+该包不在 npm registry 上——此前发布的 `dsh-pi-loop` 版本已被 unpublish——因此请直接从 GitHub 安装。
 
-每个 release 也会附带打包好的 tarball：[github.com/danalec/dsh-pi-agent/releases](https://github.com/danalec/dsh-pi-agent/releases)。
+每个 release 也会附带打包好的 tarball：[github.com/danalec/dsh-pi-loop/releases](https://github.com/danalec/dsh-pi-loop/releases)。
 
 ## 使用
 
@@ -139,8 +142,8 @@ npm install danalec/dsh-pi-agent
 ```yaml
 # 所有新会话使用 Pi loop。
 - insert:
-    - id: pi-agent
-      name: 'dsh-pi-agent'
+    - id: pi-loop
+      name: 'dsh-pi-loop'
       config:
         piPath: 'pi'                      # 或绝对路径
         cwd: '/path/to/your/project'      # Pi 会话的工作目录
@@ -148,7 +151,7 @@ npm install danalec/dsh-pi-agent
         debug: false
 
 # 回退到 DSH 自有 loop：禁用此条目并重新启用 agent-loop。
-# - id: pi-agent
+# - id: pi-loop
 #   disabled: true
 ```
 
@@ -159,7 +162,7 @@ npm install danalec/dsh-pi-agent
 | `piPath` | `string` | `'pi'` | Pi 可执行文件；从 `PATH` 解析 |
 | `cwd` | `string` | `process.cwd()` | Pi 会话的工作目录 |
 | `model` | `string` | — | Pi 模型路由（`provider/model`） |
-| `debug` | `boolean` | `false` | 将协议诊断追加到 `<tmpdir>/dsh-pi-agent.log` |
+| `debug` | `boolean` | `false` | 将协议诊断追加到 `<tmpdir>/dsh-pi-loop.log` |
 
 ## 平台说明
 
@@ -169,7 +172,7 @@ npm install danalec/dsh-pi-agent
 
 ## 调试
 
-设置 `debug: true`：每条 RPC 命令、事件、子进程退出和工厂生命周期步骤都会追加到 `<tmpdir>/dsh-pi-agent.log`（Windows 为 `%TEMP%`，其他平台为 `/tmp`）。Pi 自身的 stderr 也转发到同一日志。`debug` 关闭时完全不安装任何 sink——协议层不格式化任何诊断信息，也不碰磁盘。
+设置 `debug: true`：每条 RPC 命令、事件、子进程退出和工厂生命周期步骤都会追加到 `<tmpdir>/dsh-pi-loop.log`（Windows 为 `%TEMP%`，其他平台为 `/tmp`）。Pi 自身的 stderr 也转发到同一日志。`debug` 关闭时完全不安装任何 sink——协议层不格式化任何诊断信息，也不碰磁盘。
 
 ## 开发
 

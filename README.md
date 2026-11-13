@@ -1,4 +1,4 @@
-# dsh-pi-agent
+# dsh-pi-loop
 
 English | [中文](README.zh.md) | [Português (BR)](README.pt-BR.md) | [日本語](README.ja.md) | [Español](README.es.md)
 
@@ -7,14 +7,14 @@ Run the [Pi coding agent](https://github.com/earendil-works/pi) ([`@earendil-wor
 > **Looking for one of these?**
 > - *"How do I use pi inside DeepSeek Harness / DSH?"* — you are in the right place.
 > - *"Swap the DSH agent-loop for the pi coding agent loop?"* — this plugin replaces the factory with a `pi --mode rpc` child process.
-> - *"Run pi with a web UI / browser frontend?"* — dsh-pi-agent + the official DSH web app gives pi the full web interface: session persistence, hooks, presets, model selection.
+> - *"Run pi with a web UI / browser frontend?"* — dsh-pi-loop + the official DSH web app gives pi the full web interface: session persistence, hooks, presets, model selection.
 > - *"Use a minimal clean prompt inside DSH?"* — the pi engine keeps its ~300-token system prompt and four tools; DSH's prompt assembly never reaches the model. Zero prompt injection.
 > - *"Claude Code / Codex subagents inside DSH?"* — DSH already supports those natively; this plugin adds pi as an engine option the same way.
 
 ```
 DSH frontend (sessions, hooks, presets, SQLite persistence, web UI)
         │
-dsh-pi-agent  (this plugin: AgentFactory + event translation + history handoff)
+dsh-pi-loop  (this plugin: AgentFactory + event translation + history handoff)
         │  spawn + JSONL over stdio
         │  commands: set_model / prompt / steer / abort
         ▼
@@ -40,7 +40,7 @@ It also makes a clean A/B experiment: same frontend, same session format, switch
 | Steering | DSH `send(..., 'next-turn' \| 'next-step')` maps to Pi's `steer` — inject instructions mid-run. The instruction is delivered to the running loop exactly once |
 | Session persistence | DSH's session events remain the durable source of truth; a Pi session file is rebuilt from them on every create/resume so the child starts with full history |
 | Approval / permissions | Pi's local-trust model applies — Pi tool calls do not pass through DSH's approval chain |
-| Fallback | Disable this plugin's entry and DSH's own `dsh-agent-loop` becomes active again immediately |
+| Fallback | Disable this plugin's entry and re-enable `agent-loop`: DSH's own `dsh-agent-loop` becomes active again immediately. Only one factory may hold the agent slot at a time, so the two entries are mutually exclusive |
 
 ## Boundary mapping
 
@@ -66,7 +66,8 @@ chain rely on:
 | `agent/inbox/inserted` / `claimed` / `discarded` | the pending input is **claimed** when it enters a step (never recorded as a cancellation) |
 | `agent/pre-step` | dispatched before each step; a `reject` blocks the turn (`turn/end` reason `blocked`) and Pi is never prompted |
 | `agent/turn-stopping` | dispatched at the turn's stop boundary; steering injected there runs another step in the same turn |
-| `agent/session-start` | `source: 'startup'` for a fresh session, `'resume'` for a persisted one |
+| `agent/created` | the registry announces the agent with `source: 'startup'` for a fresh session, `'resume'` for a persisted one |
+| `agent/assistant-stream` | the start/chunk/end frames of one assistant attempt, published live |
 | `agent/error` | reported at the live boundary; the turn still closes with an error reason |
 
 Two agent events are **not** emitted, because their semantics cannot be
@@ -100,7 +101,7 @@ Separate config from the main loop: the provider plugin is its own profile row, 
 # Subagent delegation on the Pi engine (independent of the main loop row):
 - insert:
     - id: subagent-pi
-      name: 'dsh-pi-agent/subagent'
+      name: 'dsh-pi-loop/subagent'
       config:
         providerName: pi
         piPath: 'pi'                  # defaults to PATH lookup
@@ -122,38 +123,51 @@ Each delegation spawns a fresh `pi -p <task>` in the parent session's working di
 
 - Node.js ≥ 20
 - [`pi`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) (`npm i -g @earendil-works/pi-coding-agent`) on `PATH` (or pass `piPath`)
-- [DSH](https://www.npmjs.com/package/@deepseek-ai/dsh) (`npm i -g @deepseek-ai/dsh`) with a profile exposing `sessions` and `agents` services (the standard frontend assembly)
-- Peer deps: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-agent`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-scope`, `@deepseek-ai/dsh-session`
+- [DSH](https://www.npmjs.com/package/@deepseek-ai/dsh) ≥ `0.2.2-rc.1` (`npm i -g @deepseek-ai/dsh`) with a profile exposing the `sessions`, `agents` and `sessionProjections` services (the standard frontend assembly)
+- Peer deps: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-agent`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-scope`, `@deepseek-ai/dsh-session`, `@deepseek-ai/dsh-session-projection`, `@deepseek-ai/dsh-subagent`
 
 ## Install
 
+The package is not on the npm registry — the earlier `dsh-pi-loop` release was unpublished — so install it straight from the source tree. The profile's plugin manager forwards to pnpm, so a local checkout is installed like any other dependency:
+
 ```bash
-npm install danalec/dsh-pi-agent
+# Link the working tree: the profile always runs your checkout (rebuild, then
+# restart DSH). This is the development setup.
+dsh plugin --profile desktop add link:/path/to/dsh-pi-loop
+
+# Or install a copy of the directory (what `npm pack` would produce).
+dsh plugin --profile desktop add file:/path/to/dsh-pi-loop
 ```
 
-The package is not on the npm registry — the earlier `dsh-pi-agent` release was unpublished — so install it straight from GitHub. Mount it from any DSH profile (see [dsh-pi](https://github.com/Micheleww/dsh-pi) for a ready-made web profile).
+Both write the dependency into the profile's `package.json`; DSH then resolves the plugin's `@deepseek-ai/*` imports against its own installation, so exactly one DSH version is loaded in the process.
 
-Every release also ships the packed tarball: [github.com/danalec/dsh-pi-agent/releases](https://github.com/danalec/dsh-pi-agent/releases).
+Every release also ships the packed tarball: [github.com/danalec/dsh-pi-loop/releases](https://github.com/danalec/dsh-pi-loop/releases).
 
-Related: the [pi ecosystem](https://github.com/earendil-works/pi) also has [pi-gui](https://github.com/minghinmatthewlam/pi-gui), [pi-hosts](https://github.com/hunvreus/pi-hosts), [pi-zentui](https://www.npmjs.com/package/pi-zentui); DSH natively bridges [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) and [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) as subagent engines — dsh-pi-agent adds **pi** as an engine and loop option the same way.
+Related: the [pi ecosystem](https://github.com/earendil-works/pi) also has [pi-gui](https://github.com/minghinmatthewlam/pi-gui), [pi-hosts](https://github.com/hunvreus/pi-hosts), [pi-zentui](https://www.npmjs.com/package/pi-zentui); DSH natively bridges [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) and [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) as subagent engines — dsh-pi-loop adds **pi** as an engine and loop option the same way.
 
 ## Usage
 
-Mount in the profile patch layer (`cordis.patch.yml`):
+Mount in the profile patch layer (`cordis.patch.yml`). A new plugin is mounted with an `insert:` list — a bare `- id:` entry only overrides an entry that already exists:
 
 ```yaml
+# DSH's own loop holds the agent-factory slot and only one factory may be
+# registered, so the native entry steps aside while Pi is mounted.
+- id: agent-loop
+  disabled: true
+
 # Use the Pi loop for all new sessions.
 - insert:
-    - id: pi-agent
-      name: 'dsh-pi-agent'
+    - id: pi-loop
+      name: 'dsh-pi-loop'
       config:
         piPath: 'pi'                      # or an absolute path
         cwd: '/path/to/your/project'      # working directory for Pi sessions
         model: 'anthropic/claude-sonnet-4-5'  # provider/model route
+        pinModel: false                   # keep Pi's route even if DSH asks for another
         debug: false
 
 # Fall back to DSH's own loop: disable this entry and re-enable agent-loop.
-# - id: pi-agent
+# - id: pi-loop
 #   disabled: true
 ```
 
@@ -162,9 +176,10 @@ Mount in the profile patch layer (`cordis.patch.yml`):
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `piPath` | `string` | `'pi'` | Pi executable; resolved from `PATH` |
-| `cwd` | `string` | `process.cwd()` | Working directory for Pi sessions |
+| `cwd` | `string` | `process.cwd()` | Working directory for Pi sessions (a session's own `cwd` wins) |
 | `model` | `string` | — | Pi model route (`provider/model`) |
-| `debug` | `boolean` | `false` | Append protocol diagnostics to `<tmpdir>/dsh-pi-agent.log` |
+| `pinModel` | `boolean` | `false` | Always use `model`, ignoring the route DSH requests for a session. DSH's own providers are not Pi providers, so a session created with the frontend's model picker would otherwise hand Pi a route Pi refuses |
+| `debug` | `boolean` | `false` | Append protocol diagnostics to `<tmpdir>/dsh-pi-loop.log` |
 
 ## Platform notes
 
@@ -179,7 +194,7 @@ Mount in the profile patch layer (`cordis.patch.yml`):
 ## Debugging
 
 Set `debug: true`: every RPC command, event, child-process exit, and factory
-lifecycle step is appended to `<tmpdir>/dsh-pi-agent.log` (`%TEMP%` on
+lifecycle step is appended to `<tmpdir>/dsh-pi-loop.log` (`%TEMP%` on
 Windows, `/tmp` elsewhere). Pi's own stderr is forwarded into the same log.
 With `debug` off no sink is installed at all — the protocol layer formats no
 diagnostics and touches no disk.
@@ -190,7 +205,11 @@ diagnostics and touches no disk.
 npm install
 npm run typecheck   # tsc --noEmit
 npm test            # builds, then runs the node:test suite
+npm run build       # refresh dist/ — what the profile actually loads
 ```
+
+`dist/` is what DSH loads, so a linked working tree needs `npm run build`
+(and a DSH restart) to pick up a change.
 
 The test runner needs Node ≥ 21 (its glob support); the library itself runs
 on Node ≥ 20.11.
@@ -199,6 +218,14 @@ The suite covers the history rebuild (block mapping, stop reasons, session
 identity), the Pi event translation (tool results, streamed tool-call ids,
 settlement, cancellation, inbox claiming) and the RPC client against a fake
 `pi` binary that speaks the real JSONL protocol.
+
+`tools/dsh-e2e.mjs` drives one real turn end to end: it mounts the plugin on
+a bare DSH context (sessions + agents + projections), creates a session,
+sends one prompt, and prints the resulting session log.
+
+```bash
+node tools/dsh-e2e.mjs
+```
 
 ## License
 

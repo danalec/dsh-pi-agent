@@ -26,7 +26,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import {
   agentEvents,
-  Inbox,
   type Agent,
   type AgentEventDispatch,
   type AgentOptions,
@@ -34,9 +33,12 @@ import {
   type InboxTarget,
 } from '@deepseek-ai/dsh-agent'
 import {
+  AssistantStreamAccumulator,
   createAssistantMessage,
   createToolResultMessage,
-  CallId,
+  LlmAttemptId,
+  ToolCallId,
+  type AssistantStreamRecord,
   type ContentBlock,
   type StreamChunk,
   type TokenUsage,
@@ -46,8 +48,11 @@ import type {
   AgentCancelCause,
   Session,
   SessionId,
+  SessionSeq,
   TurnEndReason,
 } from '@deepseek-ai/dsh-session'
+import { PiInbox, type PiInboxNotifications } from './inbox.ts'
+import { PiModel } from './model.ts'
 import type { PiEvent, PiRpcClient } from './rpc-client.ts'
 
 export interface PiAgentOptions {
@@ -107,7 +112,7 @@ function convertBlock(block: unknown): ContentBlock | undefined {
       const args = tool.arguments
       return {
         type: 'tool-call',
-        id: CallId(String(tool.id ?? '')),
+        id: ToolCallId(String(tool.id ?? '')),
         name: String(tool.name ?? ''),
         arguments: typeof args === 'string' ? args : JSON.stringify(args ?? {}),
       }
@@ -179,7 +184,8 @@ export class PiAgent implements Agent {
   readonly id: SessionId
   readonly options: AgentOptions
   readonly session: Session
-  readonly inbox: Inbox
+  readonly inbox: PiInbox
+  readonly model: PiModel
   readonly ctx: Context
 
   private readonly rpc: PiRpcClient
@@ -205,8 +211,15 @@ export class PiAgent implements Agent {
   private step = 0
   private stepOpen = false
   private assistantSeen = 0
-  private chunkSeqs: number[] = []
-  private readonly toolCallSeqs = new Map<string, number>()
+  /** Compact provider stream of the assistant message currently being built. */
+  private stream = new AssistantStreamAccumulator()
+  /** Identity of the assistant attempt currently streaming. */
+  private attemptId: LlmAttemptId | undefined
+  /** Monotone revision of the assistant attempts of this agent. */
+  private attemptRevision = 0
+  /** Number of chunk frames published for the current attempt. */
+  private chunkIndex = 0
+  private readonly toolCallSeqs = new Map<string, SessionSeq>()
   private readonly toolCallNames = new Map<string, string>()
   /** Tool calls announced by `toolcall_start`, keyed by the content index. */
   private readonly pendingToolCalls = new Map<number, { id: string; name?: string }>()
@@ -236,11 +249,15 @@ export class PiAgent implements Agent {
     this.scope = createScope(options.ctx, this)
     this.ctx = this.scope.ctx.extend({ agent: this })
     this.disposeScope = () => void this.scope.dispose()
-    this.inbox = new Inbox(this.session, {
+    this.inbox = new PiInbox(this.session, {
       inserted: (message) => this.dispatch.emit('agent/inbox/inserted', { message }),
       discarded: (message) => this.dispatch.emit('agent/inbox/discarded', { message }),
       claimed: (message, turn) => this.dispatch.emit('agent/inbox/claimed', { message, turn }),
-    })
+    } satisfies PiInboxNotifications)
+    // The model facade is driver-owned: it records a durable `model/selection`
+    // and reads the recorded choice back, so the frontend's model switcher and
+    // the session log agree on the route the next step will use.
+    this.model = new PiModel(this.session, this.options)
     this.dispatch = agentEvents(options.ctx, this)
     this.unwatch = this.rpc.onEvent((event) => this.onPiEvent(event))
     // A dead child must not leave the driver waiting forever: settle the
@@ -425,7 +442,13 @@ export class PiAgent implements Agent {
         const proposal = [...carried, ...claimed]
         const decision = await this.dispatch.waterfall(
           'agent/pre-step',
-          { messages: proposal, turn, step, signal },
+          {
+            messages: proposal,
+            turn,
+            step,
+            signal,
+            modelSelection: this.model.current() ?? { provider: '', model: '' },
+          },
           () => Promise.resolve({ kind: 'enter' as const, messages: proposal }),
         )
         signal.throwIfAborted()
@@ -541,7 +564,6 @@ export class PiAgent implements Agent {
     if (this.stepOpen) return
     this.step += 1
     this.stepOpen = true
-    this.chunkSeqs = []
     this.session.append('step/start', { turn: this.turn, step: this.step })
     this.flushPendingSurface()
   }
@@ -585,7 +607,7 @@ export class PiAgent implements Agent {
       }
       this.pendingSurface.push(...batch)
     } catch (error: unknown) {
-      this.logger?.(`[pi-agent] steer delivery failed: ${String(error)}`)
+      this.logger?.(`[pi-loop] steer delivery failed: ${String(error)}`)
       this.pendingPrompt.push(...batch)
     }
   }
@@ -598,15 +620,30 @@ export class PiAgent implements Agent {
         const message = event.message as { role?: string } | undefined
         if (message?.role !== 'assistant') return
         this.assistantSeen += 1
+        // Each Pi assistant message is one DSH assistant attempt: a fresh
+        // compact stream, a fresh attempt identity, and a fresh `start` frame.
+        this.stream = new AssistantStreamAccumulator()
+        this.attemptRevision += 1
+        this.attemptId = LlmAttemptId(`${this.id}:${this.attemptRevision}`)
+        this.chunkIndex = 0
         if (this.assistantSeen === 1) {
           // The first assistant message belongs to the step the prompt opened.
           this.openStep()
-          return
+        } else {
+          // A further assistant message means Pi looped through tools: close
+          // the previous step and open a fresh one.
+          this.closeStep()
+          this.openStep()
         }
-        // A further assistant message means Pi looped through tools: close the
-        // previous step and open a fresh one.
-        this.closeStep()
-        this.openStep()
+        this.dispatch.emit('agent/assistant-stream', {
+          frame: {
+            type: 'start',
+            attemptId: this.attemptId,
+            revision: this.attemptRevision,
+            turn: this.turn,
+            step: this.step,
+          },
+        })
         return
       }
       case 'message_update': {
@@ -638,7 +675,7 @@ export class PiAgent implements Agent {
             const chunk: StreamChunk = {
               type: 'tool-call-delta',
               index,
-              id: CallId(pending?.id ?? ''),
+              id: ToolCallId(pending?.id ?? ''),
               ...(pending?.name !== undefined ? { name: pending.name } : {}),
               argumentsDelta: assistantEvent.delta ?? '',
             }
@@ -698,7 +735,8 @@ export class PiAgent implements Agent {
         const sourceProvider = typeof message.provider === 'string' ? message.provider : this.options.provider ?? ''
         const sourceModel = typeof message.model === 'string' ? message.model : this.options.model ?? ''
         const usage = convertUsage(message.usage)
-        this.session.append(
+        const stream: AssistantStreamRecord[] = [...this.stream.snapshot()]
+        const committed = this.session.append(
           'assistant/message',
           {
             turn: this.turn,
@@ -707,10 +745,23 @@ export class PiAgent implements Agent {
               content: blocks,
               source: { provider: sourceProvider, model: sourceModel },
             }),
+            stream,
             ...(usage === undefined ? {} : { usage }),
           },
-          { surfaceOp: 'append', sourceEventSeqs: this.chunkSeqs },
+          { surfaceOp: 'append' },
         )
+        const attemptId = this.attemptId
+        if (attemptId !== undefined) {
+          this.dispatch.emit('agent/assistant-stream', {
+            frame: {
+              type: 'end',
+              attemptId,
+              revision: this.attemptRevision,
+              index: this.chunkIndex,
+              outcome: { kind: 'committed', eventType: 'assistant/message', seq: committed.seq },
+            },
+          })
+        }
         return
       }
       case 'turn_end': {
@@ -722,7 +773,7 @@ export class PiAgent implements Agent {
       }
       case 'tool_execution_start': {
         const start = event as { toolCallId?: unknown; toolName?: unknown; args?: unknown }
-        const callId = CallId(String(start.toolCallId ?? ''))
+        const callId = ToolCallId(String(start.toolCallId ?? ''))
         const name = String(start.toolName ?? '')
         const args = start.args
         const argumentsText = typeof args === 'string' ? args : JSON.stringify(args ?? {})
@@ -739,7 +790,7 @@ export class PiAgent implements Agent {
       }
       case 'tool_execution_end': {
         const end = event as { toolCallId?: unknown; toolName?: unknown; result?: unknown; isError?: boolean }
-        const callId = CallId(String(end.toolCallId ?? ''))
+        const callId = ToolCallId(String(end.toolCallId ?? ''))
         const blocks = convertToolResult(end.result)
         const isError = end.isError === true
         const message = createToolResultMessage({
@@ -764,7 +815,7 @@ export class PiAgent implements Agent {
       case 'agent_end': {
         // One low-level run ended. More work may still follow (retry,
         // compaction, steering), so the run is NOT settled here.
-        this.logger?.('[pi-agent] agent_end (run may continue)')
+        this.logger?.('[pi-loop] agent_end (run may continue)')
         return
       }
       default:
@@ -773,7 +824,21 @@ export class PiAgent implements Agent {
   }
 
   private appendChunk(chunk: StreamChunk): void {
-    this.chunkSeqs.push(this.session.append('assistant/chunk', { turn: this.turn, step: this.step, chunk }).seq)
+    const time = Date.now()
+    this.stream.push({ time, chunk })
+    const attemptId = this.attemptId
+    if (attemptId === undefined) return
+    this.dispatch.emit('agent/assistant-stream', {
+      frame: {
+        type: 'chunk',
+        attemptId,
+        revision: this.attemptRevision,
+        index: this.chunkIndex,
+        time,
+        chunk,
+      },
+    })
+    this.chunkIndex += 1
   }
 
   /** Tear down: stop Pi and unwind the scoped context. */
