@@ -147,7 +147,7 @@ test('a pre-step rejection blocks the turn without prompting Pi', async () => {
 })
 
 test('a handled prompt does not wait for a settle that never comes', async () => {
-  const { session, rpc, agent } = createAgent({ rpc: { disposition: 'handled' } })
+  const { session, agent } = createAgent({ rpc: { disposition: 'handled' } })
   agent.send(userMessage('m1', 'hello'), 'next-turn', true)
   await waitFor(() => session.ofType('turn/end').length > 0, 2000, 'the turn to close')
   assert.equal(session.last('turn/end').data.reason.kind, 'completed')

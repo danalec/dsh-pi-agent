@@ -263,7 +263,7 @@ export class PiAgentFactory implements AgentFactory {
       emitAgentEvent(this.registryCtx, agent, 'agent/session-start', { source })
       return { agent, dispose: () => dispose().then(() => undefined) }
     } catch (error: unknown) {
-      unfollowOwner?.()
+      await unfollowOwner?.()
       await dispose()
       throw error
     }

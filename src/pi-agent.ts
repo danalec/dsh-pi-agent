@@ -48,7 +48,7 @@ import type {
   SessionId,
   TurnEndReason,
 } from '@deepseek-ai/dsh-session'
-import { PiRpcClient, type PiEvent } from './rpc-client.ts'
+import type { PiEvent, PiRpcClient } from './rpc-client.ts'
 
 export interface PiAgentOptions {
   /** Base context whose dependency API the agent's own scope inherits. */
