@@ -8,7 +8,7 @@ import { homedir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
 import { apply as applyPersistence, Config as PersistenceConfig, name as persistenceName } from '@deepseek-ai/dsh-session-persistence-jsonl'
 
-const root = join(homedir(), '.dsh', 'sessions')
+const root = process.argv[2] ?? process.env.DSH_SESSIONS_ROOT ?? join(homedir(), '.dsh', 'sessions')
 const ctx = new Context()
 await ctx.plugin({ name: persistenceName, Config: PersistenceConfig, apply: applyPersistence }, { root })
 const persistence = ctx.get('sessionPersistence')
