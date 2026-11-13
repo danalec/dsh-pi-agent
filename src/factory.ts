@@ -299,6 +299,9 @@ export class PiAgentFactory implements AgentFactory {
         ...(model !== '' && requested?.model === undefined ? { model } : {}),
       },
       rpc,
+      // Continue the session's turn sequence: a resumed session must not
+      // reopen turn 1.
+      lastTurn: this.registryCtx.agents.turnBoundaryOf(session).lastTurn,
       logger: this.options.logger,
     })
 
