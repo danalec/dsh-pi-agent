@@ -132,6 +132,9 @@ npm install danalec/dsh-pi-agent
 ください。任意の DSH profile からマウントできます（Web 用の完成 profile は
 [dsh-pi](https://github.com/Micheleww/dsh-pi) を参照）。
 
+各 release にはパッケージ済みの tarball も付属します:
+[github.com/danalec/dsh-pi-agent/releases](https://github.com/danalec/dsh-pi-agent/releases)。
+
 関連: [pi エコシステム](https://github.com/earendil-works/pi) には [pi-gui](https://github.com/minghinmatthewlam/pi-gui)、[pi-hosts](https://github.com/hunvreus/pi-hosts)、[pi-zentui](https://www.npmjs.com/package/pi-zentui) もあります。DSH はサブエージェントエンジンとして [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) と [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) をネイティブにブリッジします — dsh-pi-agent は同じ形で **pi** をエンジンおよび loop の選択肢に追加します。
 
 ## 使い方

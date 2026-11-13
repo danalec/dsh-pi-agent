@@ -130,6 +130,8 @@ npm install danalec/dsh-pi-agent
 
 该包不在 npm registry 上——此前发布的 `dsh-pi-agent` 版本已被 unpublish——因此请直接从 GitHub 安装。
 
+每个 release 也会附带打包好的 tarball：[github.com/danalec/dsh-pi-agent/releases](https://github.com/danalec/dsh-pi-agent/releases)。
+
 ## 使用
 
 在 profile patch 层（`cordis.patch.yml`）挂载：

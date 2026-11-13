@@ -133,6 +133,8 @@ npm install danalec/dsh-pi-agent
 
 The package is not on the npm registry — the earlier `dsh-pi-agent` release was unpublished — so install it straight from GitHub. Mount it from any DSH profile (see [dsh-pi](https://github.com/Micheleww/dsh-pi) for a ready-made web profile).
 
+Every release also ships the packed tarball: [github.com/danalec/dsh-pi-agent/releases](https://github.com/danalec/dsh-pi-agent/releases).
+
 Related: the [pi ecosystem](https://github.com/earendil-works/pi) also has [pi-gui](https://github.com/minghinmatthewlam/pi-gui), [pi-hosts](https://github.com/hunvreus/pi-hosts), [pi-zentui](https://www.npmjs.com/package/pi-zentui); DSH natively bridges [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) and [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) as subagent engines — dsh-pi-agent adds **pi** as an engine and loop option the same way.
 
 ## Usage

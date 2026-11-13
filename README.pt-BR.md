@@ -132,6 +132,9 @@ O pacote não está no registro do npm — a publicação anterior de
 a partir de qualquer profile do DSH (veja [dsh-pi](https://github.com/Micheleww/dsh-pi)
 para um profile web pronto).
 
+Cada release também traz o tarball empacotado:
+[github.com/danalec/dsh-pi-agent/releases](https://github.com/danalec/dsh-pi-agent/releases).
+
 Relacionado: o [ecossistema pi](https://github.com/earendil-works/pi) também tem [pi-gui](https://github.com/minghinmatthewlam/pi-gui), [pi-hosts](https://github.com/hunvreus/pi-hosts), [pi-zentui](https://www.npmjs.com/package/pi-zentui); o DSH faz ponte nativamente com [Claude Code](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-claude-code) e [Codex](https://www.npmjs.com/package/@deepseek-ai/dsh-subagent-codex) como motores de subagente — o dsh-pi-agent adiciona o **pi** como opção de motor e de loop da mesma forma.
 
 ## Uso
