@@ -81,6 +81,7 @@ A session does not have to be born under Pi to be driven by it. If a session alr
 
 - DSH remains the single source of truth; the Pi file is a rebuilt snapshot, regenerated on every create/resume (no drift, no duplication).
 - DSH message blocks map natively: `text` → `text`, `reasoning` → `thinking`, `tool-call` → `toolCall` (arguments re-parsed), `tool/result` → `toolResult` (tool name recovered from the call log).
+- The token usage travels with the assistant message: Pi's session reader needs it to estimate the context, and a resumed run without it cannot prepare its request.
 - Image blocks are currently skipped (attachment refs need the live attachment service); text history carries the context.
 - The rebuilt file keeps a stable session identity (derived from the DSH session id), so a handoff is a continuation, not a new session.
 - Session files land under `~/.dsh/pi-sessions/<session-id>.jsonl` for audit.
@@ -119,6 +120,24 @@ Separate config from the main loop: the provider plugin is its own profile row, 
 
 Each delegation spawns a fresh `pi -p <task>` in the parent session's working directory: bare Pi system prompt, its own tools, its own `AGENTS.md` discovery. Nothing from the parent conversation, persona, or tool surface crosses the process boundary — `inheritsParentContext: false`, zero prompt collision.
 
+## Compatibility
+
+The plugin implements the DSH **0.2 agent API**, not the 0.1 one:
+
+| DSH API | What the plugin does |
+| --- | --- |
+| `ctx.agents.setFactory` | registers the Pi factory synchronously, so a session created right after the plugin mounts finds it |
+| `Agent.inbox` | the driver owns the pending input (`src/inbox.ts`); DSH 0.2 turned `Inbox` into a structural interface, the implementation belongs to the driver |
+| `Agent.model` | the driver owns the durable model choice (`src/model.ts`) |
+| `agent/created` | the registry announces the agent with the session source (`startup` / `resume`) |
+| `agent/assistant-stream` | the start/chunk/end frames of one assistant attempt |
+| `assistant/message` | carries the provider stream inside the event (`stream`), not as separate chunk events |
+| `tool/result` | the tool-result message carries the model-facing blocks directly |
+| session persistence | `persistence.create()` / `persistence.open(id, 'write')` own the stored log; the events reach the backend through its `session/event` subscription |
+
+DSH checks the plugin's peer range against the running runtime at install
+time, so a version mismatch is reported before the plugin is ever mounted.
+
 ## Requirements
 
 - Node.js ≥ 20
@@ -128,7 +147,7 @@ Each delegation spawns a fresh `pi -p <task>` in the parent session's working di
 
 ## Install
 
-The package is not on the npm registry — the earlier `dsh-pi-loop` release was unpublished — so install it straight from the source tree. The profile's plugin manager forwards to pnpm, so a local checkout is installed like any other dependency:
+The package is not on the npm registry — the earlier `dsh-pi-agent` release was unpublished — so install it straight from the source tree. The profile's plugin manager forwards to pnpm, so a local checkout is installed like any other dependency:
 
 ```bash
 # Link the working tree: the profile always runs your checkout (rebuild, then
@@ -140,6 +159,10 @@ dsh plugin --profile desktop add file:/path/to/dsh-pi-loop
 ```
 
 Both write the dependency into the profile's `package.json`; DSH then resolves the plugin's `@deepseek-ai/*` imports against its own installation, so exactly one DSH version is loaded in the process.
+
+`link:` keeps the profile pointing at your checkout: edit, `npm run build`,
+restart DSH — the change is live. `file:` installs a copy, so the profile runs
+the code as it was when the install ran.
 
 Every release also ships the packed tarball: [github.com/danalec/dsh-pi-loop/releases](https://github.com/danalec/dsh-pi-loop/releases).
 
@@ -181,6 +204,30 @@ Mount in the profile patch layer (`cordis.patch.yml`). A new plugin is mounted w
 | `pinModel` | `boolean` | `false` | Always use `model`, ignoring the route DSH requests for a session. DSH's own providers are not Pi providers, so a session created with the frontend's model picker would otherwise hand Pi a route Pi refuses |
 | `debug` | `boolean` | `false` | Append protocol diagnostics to `<tmpdir>/dsh-pi-loop.log` |
 
+### Mounting rules
+
+Two rules decide whether the plugin comes up:
+
+1. **A new plugin is an `insert:` list.** A bare `- id: pi-loop` entry only
+   overrides an entry that already exists — the loader answers
+   `patch: entry "pi-loop" not found` and mounts nothing.
+2. **Only one agent factory may hold the slot.** DSH's own `dsh-agent-loop`
+   registers the factory first, so `agent-loop` has to be disabled while this
+   plugin is mounted. Leaving both enabled fails with
+   `an agent factory is already registered`.
+
+## Session lifecycle
+
+| Phase | What happens |
+| --- | --- |
+| create | the session is prepared, the persistence backend takes the write ownership of the stored log, the Pi session file is rebuilt from the (still empty) DSH log, and the child starts with `--no-session` |
+| turn | DSH input is claimed from the inbox, the prompt goes to Pi, Pi's events become DSH session events, and the backend stores them through its `session/event` subscription |
+| resume | the stored log is read back, an interrupted turn is closed durably, the session is seeded from the log, and the child starts with `--session <rebuilt file>` — the conversation it already had |
+| dispose | the child is stopped, the scope unwinds, and the persistence handle is closed |
+
+DSH's own checkpoint policy flushes the stored log at the request boundary, so
+a turn is durable when the model call starts, not when it ends.
+
 ## Platform notes
 
 - **Windows**: Pi ships as a command shim. The plugin resolves the shim
@@ -190,6 +237,18 @@ Mount in the profile patch layer (`cordis.patch.yml`). A new plugin is mounted w
 - **POSIX**: the shim is an executable script and is spawned directly.
 - The diagnostics file lives in the platform temp directory
   (`os.tmpdir()`), so it is writable on every platform.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `patch: entry "pi-loop" not found` | the entry is a bare `- id:` override instead of an `insert:` | wrap it in `- insert:` |
+| `an agent factory is already registered` | DSH's `agent-loop` still holds the factory slot | disable `agent-loop` in the same patch layer |
+| `no agent factory registered (load an agent-loop plugin)` | the plugin did not mount (wrong entry name, or the profile has no `agent-loop` and no `pi-loop`) | check the entry `name:` and the loader's diagnostics |
+| Pi refuses the model route | DSH handed Pi a DSH provider | set `model:` to a Pi route and `pinModel: true` |
+| The resumed turn produces no answer | the rebuilt Pi session file lacks the assistant usage | rebuild from a current checkout (`npm run build`); Pi needs the token count to prepare its request |
+| Nothing happens on Windows | `pi` is a `.cmd` shim that the desktop app cannot find | point `piPath` at the absolute `pi.cmd` path |
+| No diagnostics | `debug` is off | set `debug: true` and read `%TEMP%/dsh-pi-loop.log` |
 
 ## Debugging
 
@@ -219,9 +278,11 @@ identity), the Pi event translation (tool results, streamed tool-call ids,
 settlement, cancellation, inbox claiming) and the RPC client against a fake
 `pi` binary that speaks the real JSONL protocol.
 
-`tools/dsh-e2e.mjs` drives one real turn end to end: it mounts the plugin on
-a bare DSH context (sessions + agents + projections), creates a session,
-sends one prompt, and prints the resulting session log.
+`tools/dsh-e2e.mjs` drives the whole lifecycle against the real DSH packages:
+it mounts the plugin on a bare context (sessions, agents, projections, the
+JSONL persistence backend), creates a session, sends a prompt, disposes it,
+resumes it from the stored log and sends a second prompt — printing the
+session log and the rebuilt Pi session file at each step.
 
 ```bash
 node tools/dsh-e2e.mjs

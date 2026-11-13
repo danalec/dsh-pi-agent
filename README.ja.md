@@ -2,6 +2,8 @@
 
 [English](README.md) | [中文](README.zh.md) | [Português (BR)](README.pt-BR.md) | 日本語 | [Español](README.es.md)
 
+> **Note:** this translation follows an older revision of the README; the canonical text is [README.md](README.md).
+
 [Pi coding agent](https://github.com/earendil-works/pi)（[`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)）を [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（[`@deepseek-ai/dsh`](https://www.npmjs.com/package/@deepseek-ai/dsh)）の中で agent loop として動かす DSH `Agent` プラグインです。ヘッドレスの `pi --mode rpc` 子プロセスを駆動するため、DSH のフロントエンド（セッションログ、hooks、プリセット、web UI）は一切変更せずに動きます。
 
 > **こんな探apezではありませんか？**

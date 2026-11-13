@@ -180,6 +180,49 @@ test('a tool result keeps every content block and recovers the tool name', () =>
   }
 })
 
+test('the rebuilt assistant message carries the token usage', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pi-history-'))
+  const file = join(directory, 'session.jsonl')
+  try {
+    buildPiSessionFile({
+      session: session([
+        userMessage(0, 'hi'),
+        {
+          type: 'assistant/message',
+          seq: 1,
+          time: 1_700_000_000_001,
+          data: {
+            turn: 1,
+            step: 1,
+            message: {
+              id: 'a1',
+              role: 'assistant',
+              content: [{ type: 'text', text: 'sure' }],
+              source: { kind: 'model', provider: 'anthropic', model: 'claude-x' },
+            },
+            usage: { inputTokens: 10, outputTokens: 4, cacheReadTokens: 2, cacheWriteTokens: 0 },
+          },
+        },
+      ]),
+      cwd: '/tmp/project',
+      filePath: file,
+    })
+    const lines = readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+    // Pi's session reader needs the usage to estimate the context; a resumed
+    // run without it cannot prepare its request.
+    assert.deepEqual(lines[2].message.usage, {
+      input: 10,
+      output: 4,
+      cacheRead: 2,
+      cacheWrite: 0,
+      totalTokens: 16,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    })
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('the rebuilt session keeps its identity across rebuilds', () => {
   const directory = mkdtempSync(join(tmpdir(), 'pi-history-'))
   try {

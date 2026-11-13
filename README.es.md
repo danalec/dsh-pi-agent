@@ -2,6 +2,8 @@
 
 [English](README.md) | [中文](README.zh.md) | [Português (BR)](README.pt-BR.md) | [日本語](README.ja.md) | Español
 
+> **Nota:** esta traducción sigue una revisión anterior del README; el texto canónico es [README.md](README.md).
+
 Ejecuta el [Pi coding agent](https://github.com/earendil-works/pi) ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) como agent loop dentro de [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) ([`@deepseek-ai/dsh`](https://www.npmjs.com/package/@deepseek-ai/dsh)): un plugin `Agent` de DSH que conduce un proceso hijo `pi --mode rpc` sin interfaz, de modo que el frontend de DSH — registro de sesión, hooks, presets, web UI — funciona sin cambios.
 
 > **¿Buscas algo de esto?**
