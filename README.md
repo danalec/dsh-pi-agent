@@ -34,11 +34,43 @@ It also makes a clean A/B experiment: same frontend, same session format, switch
 | Layer | Behavior |
 | --- | --- |
 | System prompt / tools / context | **Untouched** — identical to running `pi` in the same directory (context files like `AGENTS.md` are loaded by Pi itself) |
-| Model routing | `set_model` per session; a delegated subagent's requested model wins over the factory default |
-| Steering | DSH `send(..., 'next-turn' \| 'next-step')` maps to Pi's `steer` — inject instructions mid-run |
+| Model routing | `set_model` per session; a delegated subagent's requested model wins over the factory default. A model without a provider borrows the default's provider — the provider slot never receives a model id |
+| Steering | DSH `send(..., 'next-turn' \| 'next-step')` maps to Pi's `steer` — inject instructions mid-run. The instruction is delivered to the running loop exactly once |
 | Session persistence | DSH's session events remain the durable source of truth; a Pi session file is rebuilt from them on every create/resume so the child starts with full history |
 | Approval / permissions | Pi's local-trust model applies — Pi tool calls do not pass through DSH's approval chain |
 | Fallback | Disable this plugin's entry and DSH's own `dsh-agent-loop` becomes active again immediately |
+
+## Boundary mapping
+
+The bridge translates Pi's internals onto DSH's turn/step model:
+
+| DSH | Pi |
+| --- | --- |
+| one turn | one `prompt` command (one Pi run) |
+| one step | one assistant message (one model call plus the tool executions it requested) |
+| step boundary | Pi's `turn_end` event (the assistant turn finished) |
+| next-step input | Pi's `steer` command (delivered right before the next LLM call) |
+
+A turn closes when Pi reports `agent_settled` — not on `agent_end`, which only ends one low-level run while retries, compaction recovery and queued work may still follow.
+
+## DSH agent hooks
+
+The plugin implements the agent-subject events the frontend and the policy
+chain rely on:
+
+| Event | Behavior |
+| --- | --- |
+| `agent/status` | `idle` ⇄ `running`, mirrored on every transition |
+| `agent/inbox/inserted` / `claimed` / `discarded` | the pending input is **claimed** when it enters a step (never recorded as a cancellation) |
+| `agent/pre-step` | dispatched before each step; a `reject` blocks the turn (`turn/end` reason `blocked`) and Pi is never prompted |
+| `agent/turn-stopping` | dispatched at the turn's stop boundary; steering injected there runs another step in the same turn |
+| `agent/session-start` | `source: 'startup'` for a fresh session, `'resume'` for a persisted one |
+| `agent/error` | reported at the live boundary; the turn still closes with an error reason |
+
+Two agent events are **not** emitted, because their semantics cannot be
+honored across the process boundary: `agent/request` and `agent/request-error`
+wrap the model call itself, which happens inside the Pi child. A listener
+that needs to influence the model call has to use Pi's own extensions.
 
 ## Mid-session handoff
 
@@ -47,6 +79,7 @@ A session does not have to be born under Pi to be driven by it. If a session alr
 - DSH remains the single source of truth; the Pi file is a rebuilt snapshot, regenerated on every create/resume (no drift, no duplication).
 - DSH message blocks map natively: `text` → `text`, `reasoning` → `thinking`, `tool-call` → `toolCall` (arguments re-parsed), `tool/result` → `toolResult` (tool name recovered from the call log).
 - Image blocks are currently skipped (attachment refs need the live attachment service); text history carries the context.
+- The rebuilt file keeps a stable session identity (derived from the DSH session id), so a handoff is a continuation, not a new session.
 - Session files land under `~/.dsh/pi-sessions/<session-id>.jsonl` for audit.
 
 ```
@@ -89,7 +122,6 @@ Each delegation spawns a fresh `pi -p <task>` in the parent session's working di
 - [`pi`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) (`npm i -g @earendil-works/pi-coding-agent`) on `PATH` (or pass `piPath`)
 - [DSH](https://www.npmjs.com/package/@deepseek-ai/dsh) (`npm i -g @deepseek-ai/dsh`) with a profile exposing `sessions` and `agents` services (the standard frontend assembly)
 - Peer deps: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-agent`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-scope`, `@deepseek-ai/dsh-session`
-
 ## Install
 
 ```bash
@@ -127,12 +159,50 @@ Mount in the profile patch layer (`cordis.patch.yml`):
 | `piPath` | `string` | `'pi'` | Pi executable; resolved from `PATH` |
 | `cwd` | `string` | `process.cwd()` | Working directory for Pi sessions |
 | `model` | `string` | — | Pi model route (`provider/model`) |
-| `debug` | `boolean` | `false` | Append protocol diagnostics to `/tmp/dsh-pi-agent.log` |
+| `debug` | `boolean` | `false` | Append protocol diagnostics to `<tmpdir>/dsh-pi-agent.log` |
+
+## Platform notes
+
+- **Windows**: Pi ships as a command shim. The plugin resolves the shim
+  (`.exe`/`.com`/`.cmd`/`.bat`) and launches a `.cmd`/`.bat` through `cmd.exe`
+  with every argument quoted, so `pi.cmd` works out of the box. Point
+  `piPath` at the shim if it is not on `PATH`.
+- **POSIX**: the shim is an executable script and is spawned directly.
+- The diagnostics file lives in the platform temp directory
+  (`os.tmpdir()`), so it is writable on every platform.
 
 ## Debugging
 
-Set `debug: true` (or mount with a `logger`): every RPC command, event, child-process exit, and factory lifecycle step is appended to `/tmp/dsh-pi-agent.log`. Pi's own stderr is forwarded into the same log.
+Set `debug: true`: every RPC command, event, child-process exit, and factory
+lifecycle step is appended to `<tmpdir>/dsh-pi-agent.log` (`%TEMP%` on
+Windows, `/tmp` elsewhere). Pi's own stderr is forwarded into the same log.
+With `debug` off no sink is installed at all — the protocol layer formats no
+diagnostics and touches no disk.
+
+## Development
+
+```bash
+npm install
+npm run typecheck   # tsc --noEmit
+npm test            # builds, then runs the node:test suite
+```
+
+The suite covers the history rebuild (block mapping, stop reasons, session
+identity), the Pi event translation (tool results, streamed tool-call ids,
+settlement, cancellation, inbox claiming) and the RPC client against a fake
+`pi` binary that speaks the real JSONL protocol.
 
 ## License
 
-MIT
+Triple-licensed, at your option: **MIT**, **Apache-2.0**, or a
+**Commercial License** (`MIT OR Apache-2.0 OR LicenseRef-Proprietary`).
+
+The MIT and Apache-2.0 options are complete and free on their own terms —
+the commercial option never restricts them. The commercial option covers
+closed-source redistribution without attribution obligations, a warranty or
+indemnity from the copyright holder, and relief from the Apache-2.0 patent
+grant; its binding terms come from a separate written agreement.
+
+Full texts: [`LICENSE`](LICENSE), [`LICENSE-MIT`](LICENSE-MIT),
+[`LICENSE-APACHE`](LICENSE-APACHE),
+[`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL).

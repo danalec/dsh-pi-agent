@@ -21,6 +21,7 @@
  *         piPath: 'pi'                      # or an absolute path
  *         cwd: '/path/to/your/project'
  *         model: 'provider/model'           # e.g. anthropic/claude-sonnet-4-5
+ *         debug: false
  * # Fall back to DSH's own loop: disable this entry and re-enable agent-loop.
  * # - id: pi-agent
  * #   disabled: true
@@ -28,6 +29,8 @@
  */
 
 import { appendFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { PiAgentFactory } from './factory.ts'
@@ -39,6 +42,18 @@ export type {
   PiMessageEntry,
   PiSessionHeader,
 } from './history.ts'
+export { PiAgent } from './pi-agent.ts'
+export type { PiAgentOptions } from './pi-agent.ts'
+export { PiRpcClient } from './rpc-client.ts'
+export type {
+  PiCommand,
+  PiEvent,
+  PiPromptDisposition,
+  PiResponse,
+  PiRpcClientOptions,
+} from './rpc-client.ts'
+export { PiAgentFactory } from './factory.ts'
+export type { PiFactoryOptions, PiSessionStartSource } from './factory.ts'
 
 export const name = 'pi-agent'
 
@@ -51,7 +66,7 @@ export interface Config {
   cwd?: string
   /** Pi model route (`provider/model`, e.g. `anthropic/claude-sonnet-4-5`). */
   model?: string
-  /** Protocol diagnostics; written to /tmp/dsh-pi-agent.log. */
+  /** Protocol diagnostics; appended to `<tmpdir>/dsh-pi-agent.log`. */
   debug?: boolean
 }
 
@@ -62,34 +77,42 @@ export const Config = z.object({
   debug: z.boolean(),
 }) as unknown as z<Config>
 
-export function apply(ctx: Context, config: Config): void {
+/** Name of the diagnostics file inside the platform temp directory. */
+export const DEBUG_LOG_FILE = 'dsh-pi-agent.log'
+
+/**
+ * Register the Pi agent factory.
+ *
+ * @returns the disposer that unregisters the factory.
+ */
+export function apply(ctx: Context, config: Config): () => void {
+  const debug = config.debug === true
+  const logFile = join(tmpdir(), DEBUG_LOG_FILE)
   const trace = (line: string): void => {
+    if (!debug) return
     try {
-      appendFileSync('/tmp/dsh-pi-agent.log', `${new Date().toISOString()} ${line}\n`)
+      appendFileSync(logFile, `${new Date().toISOString()} ${line}\n`)
     } catch { /* diagnostics must never break the plugin */ }
   }
   trace(`apply entered config=${JSON.stringify(config)}`)
   try {
     const cwd = config.cwd ?? process.cwd()
-    const logger = (line: string): void => {
-      trace(`[pi] ${line}`)
-    }
-    const factory = new PiAgentFactory({ piPath: config.piPath, cwd, model: config.model, logger, trace }, ctx)
-    ctx.agents.setFactory(factory)
+    // Without `debug`, no sink is installed at all: the protocol layer then
+    // formats no diagnostics and touches no disk.
+    const logger = debug
+      ? (line: string): void => {
+          trace(`[pi] ${line}`)
+        }
+      : undefined
+    const factory = new PiAgentFactory(
+      { piPath: config.piPath, cwd, model: config.model, logger, trace: debug ? trace : undefined },
+      ctx,
+    )
+    const dispose = ctx.agents.setFactory(factory)
     trace('factory registered (pi loop active)')
+    return dispose
   } catch (error: unknown) {
     trace(`apply failed: ${String(error)}`)
     throw error
   }
 }
-
-// Re-export the subagent provider entry under a distinct subpath:
-// a profile mounts it as `dsh-pi-agent/subagent` so the loop plugin and the
-// delegation provider stay independently toggleable rows.
-export {
-  name as subagentName,
-  inject as subagentInject,
-  Config as SubagentConfig,
-  apply as subagentApply,
-} from './subagent.ts'
-export type { Config as SubagentPluginConfig } from './subagent.ts'

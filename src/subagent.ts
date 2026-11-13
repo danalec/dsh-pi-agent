@@ -30,7 +30,6 @@
  * ```
  */
 
-import { spawn } from 'node:child_process'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { type ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -42,10 +41,17 @@ import type {
   SubagentResult,
   SubagentRun,
 } from '@deepseek-ai/dsh-subagent'
+import { spawnPi } from './spawn.ts'
 
 export const name = 'subagent-pi'
 
 export const inject = ['subagents']
+
+/** Maximum captured child output, in bytes. */
+const MAX_OUTPUT_BYTES = 4 * 1024 * 1024
+
+/** Maximum diagnostic detail carried by a failed run, in UTF-8 bytes. */
+const MAX_DIAGNOSTIC_BYTES = 4096
 
 /** Config: how to spawn and drive the child pi process. */
 export interface Config {
@@ -91,6 +97,13 @@ function resolveCwd(configured: string | undefined, request: ResolvedSubagentSta
   return parentCwd
 }
 
+/** Truncate text to a UTF-8 byte budget. */
+function clampUtf8(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text
+  const buffer = Buffer.from(text, 'utf8').subarray(0, maxBytes)
+  return buffer.toString('utf8')
+}
+
 class PiSubagentProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = { outputSchema: false, depthLimit: false, toolFilter: false, persona: false }
   // The child is a fresh pi process: no parent conversation crosses the boundary.
@@ -113,11 +126,13 @@ class PiSubagentProvider implements SubagentProvider {
     const cwd = resolveCwd(this.config.cwd, request)
     const id = SessionId(`pi-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`)
 
-    const args = ['-p', ...this.config.args ?? []]
+    const args = ['-p', ...(this.config.args ?? [])]
     if (this.config.model !== undefined && this.config.model !== '') {
       args.push('--model', this.config.model)
     }
-    args.push(task)
+    // `--` stops option parsing, so a task that starts with `-` is a prompt
+    // and not a flag.
+    args.push('--', task)
 
     // Provider-owned cancellation: dispose() and the request's abort signal
     // both funnel into one controller, so the run settles as 'aborted' either way.
@@ -134,7 +149,7 @@ class PiSubagentProvider implements SubagentProvider {
         if (controller.signal.aborted) return { output: [], stopReason: 'aborted' }
         const message = error instanceof Error ? error.message : String(error)
         this.ctx.logger.warn(`subagent-pi "${this.name}": child run failed: ${message}`)
-        return { output: [], stopReason: 'error', diagnostic: message.slice(0, 4096) }
+        return { output: [], stopReason: 'error', diagnostic: clampUtf8(message, MAX_DIAGNOSTIC_BYTES) }
       } finally {
         request.signal.removeEventListener('abort', onParentAbort)
       }
@@ -154,40 +169,64 @@ class PiSubagentProvider implements SubagentProvider {
   /** Spawn `pi -p`, capture stdout, and enforce the wall-clock timeout. */
   private runPi(args: string[], cwd: string, signal: AbortSignal): Promise<string> {
     return new Promise((resolve, reject) => {
-      const child = spawn(this.config.piPath, args, {
+      const child = spawnPi(this.config.piPath, args, {
         cwd,
         env: process.env,
         stdio: ['ignore', 'pipe', 'pipe'],
         signal,
+        windowsHide: true,
       })
       let stdout = ''
       let stderr = ''
+      let settled = false
+      const settle = (action: () => void): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        action()
+      }
       const timer = setTimeout(() => {
         child.kill('SIGTERM')
-        reject(new Error(`subagent-pi: timed out after ${this.config.timeoutMs}ms`))
+        settle(() => reject(new Error(`subagent-pi: timed out after ${this.config.timeoutMs}ms`)))
       }, this.config.timeoutMs)
+      timer.unref?.()
 
       child.stdout.setEncoding('utf8')
-      child.stdout.on('data', (chunk: string) => { stdout += chunk })
+      child.stdout.on('data', (chunk: string) => {
+        // Bound the captured output: a runaway child must not exhaust the host.
+        if (stdout.length >= MAX_OUTPUT_BYTES) return
+        stdout += chunk
+        if (stdout.length > MAX_OUTPUT_BYTES) stdout = stdout.slice(0, MAX_OUTPUT_BYTES)
+      })
       child.stderr.setEncoding('utf8')
-      child.stderr.on('data', (chunk: string) => { stderr += chunk })
-      child.on('error', error => { clearTimeout(timer); reject(error) })
+      child.stderr.on('data', (chunk: string) => {
+        if (stderr.length >= MAX_OUTPUT_BYTES) return
+        stderr += chunk
+        if (stderr.length > MAX_OUTPUT_BYTES) stderr = stderr.slice(0, MAX_OUTPUT_BYTES)
+      })
+      child.on('error', error => settle(() => reject(error)))
       child.on('close', (code, killSignal) => {
-        clearTimeout(timer)
-        if (signal.aborted) {
-          reject(new Error('aborted'))
-        } else if (code === 0) {
-          resolve(stdout.trim())
-        } else {
-          const detail = stderr.trim().split('\n').slice(-3).join(' | ').slice(0, 512)
-          reject(new Error(`pi exited with code ${String(code)}${killSignal === null ? '' : ` (signal ${killSignal})`}${detail === '' ? '' : `: ${detail}`}`))
-        }
+        settle(() => {
+          if (signal.aborted) {
+            reject(new Error('aborted'))
+          } else if (code === 0) {
+            resolve(stdout.trim())
+          } else {
+            const detail = stderr.trim().split('\n').slice(-3).join(' | ').slice(0, 512)
+            reject(new Error(`pi exited with code ${String(code)}${killSignal === null ? '' : ` (signal ${killSignal})`}${detail === '' ? '' : `: ${detail}`}`))
+          }
+        })
       })
     })
   }
 }
 
-export function apply(ctx: Context, config: Config): void {
+/**
+ * Register the Pi subagent provider.
+ *
+ * @returns the disposer that unregisters the provider.
+ */
+export function apply(ctx: Context, config: Config): () => void {
   const providerName = config.providerName === undefined || config.providerName === '' ? 'pi' : config.providerName
   const timeoutMs = config.timeoutMs === undefined ? 600000 : config.timeoutMs
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -198,5 +237,5 @@ export function apply(ctx: Context, config: Config): void {
     piPath: config.piPath === undefined || config.piPath === '' ? 'pi' : config.piPath,
     timeoutMs,
   })
-  ctx.subagents.registerProvider(provider)
+  return ctx.subagents.registerProvider(provider)
 }

@@ -24,13 +24,15 @@ import {
   type CreateAgentOptions,
   type ResumeAgentOptions,
 } from '@deepseek-ai/dsh-agent'
-import { createScope, scopeOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { buildPiSessionFile } from './history.ts'
 import { PiAgent } from './pi-agent.ts'
 import { PiRpcClient } from './rpc-client.ts'
+
+/** Why the session lifecycle began. */
+export type PiSessionStartSource = 'startup' | 'resume'
 
 export interface PiFactoryOptions {
   /** Absolute path to the Pi executable (defaults to `pi` on PATH). */
@@ -43,6 +45,54 @@ export interface PiFactoryOptions {
   logger?: (line: string) => void
   /** Lifecycle trace sink (apply/createAgent/resume); omit to keep quiet. */
   trace?: (line: string) => void
+}
+
+/** One resolved model route. */
+export interface ResolvedRoute {
+  /** `provider/model`, or empty when no route could be resolved. */
+  route: string
+  provider: string
+  model: string
+}
+
+/**
+ * Resolve the model route for one agent.
+ *
+ * The requested per-agent route wins over the factory default: this is what
+ * lets a delegated child (whose `agentOptions` come from tool-subagent's
+ * config) run on a fixed model like `provider/model` while the top-level
+ * session keeps the factory default. A model without a provider borrows the
+ * default's provider — never the other way round, so `provider` can never
+ * end up holding a model id.
+ */
+export function resolvePiRoute(factoryModel: string | undefined, requested: AgentOptions | undefined): ResolvedRoute {
+  const fallback = factoryModel ?? ''
+  const slash = fallback.indexOf('/')
+  const fallbackProvider = slash > 0 ? fallback.slice(0, slash) : ''
+  const fallbackModel = slash > 0 ? fallback.slice(slash + 1) : fallback
+
+  const requestedProvider = requested?.provider !== undefined && requested.provider !== ''
+    ? requested.provider
+    : undefined
+  const requestedModel = requested?.model !== undefined && requested.model !== ''
+    ? requested.model
+    : undefined
+
+  let provider: string
+  let model: string
+  if (requestedModel !== undefined) {
+    model = requestedModel
+    provider = requestedProvider ?? fallbackProvider
+  } else if (requestedProvider !== undefined) {
+    provider = requestedProvider
+    model = fallbackModel
+  } else {
+    provider = fallbackProvider
+    model = fallbackModel
+  }
+
+  if (provider === '' || model === '') return { route: '', provider: '', model: '' }
+  return { route: `${provider}/${model}`, provider, model }
 }
 
 export class PiAgentFactory implements AgentFactory {
@@ -64,7 +114,16 @@ export class PiAgentFactory implements AgentFactory {
         ...options.meta === undefined ? {} : { meta: options.meta },
         ...options.seed === undefined ? {} : { seed: options.seed },
       })
-        const handle = await this.assembleAndPublish(ownerCtx, id, session, cwd, options.agentOptions, options.signal, options.setup)
+      const handle = await this.assembleAndPublish(
+        ownerCtx,
+        id,
+        session,
+        cwd,
+        options.agentOptions,
+        options.signal,
+        options.setup,
+        'startup',
+      )
       this.options.trace?.(`createAgent OK id=${String(id)}`)
       return handle
     } catch (error: unknown) {
@@ -85,7 +144,16 @@ export class PiAgentFactory implements AgentFactory {
       try {
         const session = preparation.session
         const cwd = session.header.cwd ?? this.options.cwd
-      const handle = await this.assembleAndPublish(ownerCtx, id, session, cwd, options.agentOptions, options.signal, options.setup)
+        const handle = await this.assembleAndPublish(
+          ownerCtx,
+          id,
+          session,
+          cwd,
+          options.agentOptions,
+          options.signal,
+          options.setup,
+          'resume',
+        )
         this.options.trace?.(`resume OK id=${String(id)}`)
         return handle
       } finally {
@@ -97,6 +165,13 @@ export class PiAgentFactory implements AgentFactory {
     }
   }
 
+  /**
+   * Resolve the model route for one agent.
+   */
+  private resolveRoute(requested: AgentOptions | undefined): ResolvedRoute {
+    return resolvePiRoute(this.options.model, requested)
+  }
+
   /** Mint the Pi RPC child, build the scoped PiAgent, and publish the pair. */
   private async assembleAndPublish(
     ownerCtx: Context,
@@ -106,23 +181,14 @@ export class PiAgentFactory implements AgentFactory {
     agentOptions: AgentOptions | undefined,
     signal: AbortSignal | undefined,
     setup: CreateAgentOptions['setup'],
+    source: PiSessionStartSource,
   ): Promise<AgentHandle> {
     ownerCtx.fiber.assertActive()
     if (signal?.aborted) throw new Error(`agent "${id}" creation aborted`)
 
-    this.options.trace?.(`dsh-scope resolved at: ${import.meta.resolve('@deepseek-ai/dsh-scope')}`)
-    // The requested per-agent model route wins over the factory default. This
-    // is what lets a delegated child (whose `agentOptions` come from
-    // tool-subagent's config) run on a fixed model like `provider/model`
-    // while the top-level session keeps the factory default.
     const requested = agentOptions
-    const model = requested?.model !== undefined && requested.model !== ''
-      ? `${requested.provider ?? ''}/${requested.model}`.replace(/^\/+/, '')
-      : this.options.model ?? ''
-    const provider = model.split('/')[0] ?? ''
-    const modelId = model.split('/').slice(1).join('/')
+    const { route, provider, model } = this.resolveRoute(requested)
 
-    const scope = createScope(this.registryCtx, id as unknown as ScopeKey)
     // Rebuild the Pi session from DSH's durable log: the child inherits the
     // complete conversation (DSH-native turns and earlier Pi turns alike), so
     // a session handed off mid-stream continues with full context.
@@ -134,9 +200,10 @@ export class PiAgentFactory implements AgentFactory {
     })
     const rpc = new PiRpcClient({
       cwd,
-      model: model === '' ? undefined : model,
+      model: route === '' ? undefined : route,
       piPath: this.options.piPath,
       sessionFile,
+      signal,
       logger: this.options.logger,
     })
     const agent = new PiAgent({
@@ -146,10 +213,10 @@ export class PiAgentFactory implements AgentFactory {
         ...agentOptions,
         // Only fill route fields the caller did not provide.
         ...(provider !== '' && requested?.provider === undefined ? { provider } : {}),
-        ...(modelId !== '' && requested?.model === undefined ? { model: modelId } : {}),
+        ...(model !== '' && requested?.model === undefined ? { model } : {}),
       },
       rpc,
-      cwd,
+      logger: this.options.logger,
     })
 
     // Creation-window composition (the AgentFactory contract): await the
@@ -193,7 +260,7 @@ export class PiAgentFactory implements AgentFactory {
       detachAgent = this.registryCtx.agents.enter(agent, ownerCtx.agent)
       agent.ctx.sessions.announce(session)
       this.registryCtx.agents.announce(agent)
-      emitAgentEvent(this.registryCtx, agent, 'agent/session-start', { source: 'startup' })
+      emitAgentEvent(this.registryCtx, agent, 'agent/session-start', { source })
       return { agent, dispose: () => dispose().then(() => undefined) }
     } catch (error: unknown) {
       unfollowOwner?.()

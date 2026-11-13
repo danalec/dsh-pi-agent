@@ -32,9 +32,9 @@
  *   dsh tool-result   → pi toolResult (tool name recovered from the call log)
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {
   AssistantMessage,
@@ -57,10 +57,6 @@ interface PiTextBlock { type: 'text'; text: string }
 interface PiThinkingBlock { type: 'thinking'; thinking: string }
 interface PiToolCallBlock { type: 'toolCall'; id: string; name: string; arguments: Record<string, unknown> }
 
-/** Pi user content may be a bare string; assistant/toolResult content is blocks. */
-type PiUserContent = string | Array<PiTextBlock | PiThinkingBlock>
-type PiAssistantContent = Array<PiTextBlock | PiThinkingBlock | PiToolCallBlock>
-
 export interface PiMessage {
   role: 'user' | 'assistant' | 'toolResult'
   content: string | Array<PiTextBlock | PiThinkingBlock | PiToolCallBlock>
@@ -72,6 +68,8 @@ export interface PiMessage {
   toolCallId?: string
   toolName?: string
   isError?: boolean
+  /** Unix epoch milliseconds (Pi's message timestamp unit). */
+  timestamp?: number
 }
 
 export interface PiMessageEntry {
@@ -143,15 +141,19 @@ function convertBlocks(blocks: readonly ContentBlock[], logger?: (line: string) 
   return out
 }
 
-/** Convert a DSH user message to the Pi user message shape. */
-function toPiUserMessage(message: UserMessage, logger?: (line: string) => void): PiMessage {
+/**
+ * Convert a DSH user message to the Pi user message shape.
+ *
+ * Pi's `UserMessage.content` is `string | (TextContent | ImageContent)[]` —
+ * thinking blocks are not valid there, so only text survives.
+ */
+function toPiUserMessage(message: UserMessage, timestamp: number, logger?: (line: string) => void): PiMessage {
   const blocks = convertBlocks(message.content, logger)
   const text = blocks
     .filter((block): block is PiTextBlock => block.type === 'text')
     .map((block) => block.text)
     .join('\n')
-  // Pure-text user input takes the compact string form pi writes itself.
-  return { role: 'user', content: text === '' ? blocks : text }
+  return { role: 'user', content: text, timestamp }
 }
 
 /** Convert a DSH assistant message to the Pi assistant message shape. */
@@ -171,6 +173,7 @@ function toPiAssistantMessage(
     ...(source?.provider !== undefined ? { provider: source.provider } : {}),
     ...(source?.model !== undefined ? { model: source.model } : {}),
     stopReason: mapStopReason(finishReasons.get(event.data.turn), hasToolCalls),
+    timestamp: event.time,
   }
 }
 
@@ -190,12 +193,30 @@ function toPiToolResultMessage(
     toolCallId: callId,
     toolName: toolNames.get(callId) ?? 'unknown',
     isError: block?.isError === true,
+    timestamp: event.time,
   }
 }
 
 /** Deterministic 8-char hex entry id from the source event seq. */
 function entryId(seq: number): string {
   return `e${seq.toString(16).padStart(7, '0')}`
+}
+
+/**
+ * Derive a stable, UUID-shaped session id from the DSH session id.
+ *
+ * The rebuilt file must keep its identity across resumes: a fresh random id
+ * on every rebuild would make Pi treat each handoff as a different session.
+ */
+function deriveSessionId(seed: string): string {
+  const hex = createHash('sha256').update(seed).digest('hex').slice(0, 32)
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join('-')
 }
 
 /**
@@ -211,18 +232,21 @@ export function buildPiSessionFile(options: BuildPiSessionFileOptions): string {
   const entries: PiMessageEntry[] = []
   let parentId: string | null = null
 
+  // Turn reasons are recorded by `turn/end`, which the log orders AFTER the
+  // assistant message it describes. Collect them first, otherwise every
+  // assistant message would fall back to the default stop reason.
+  for (const event of session.events) {
+    if (event.type !== 'turn/end') continue
+    finishReasons.set(event.data.turn, event.data.reason as { kind: string })
+  }
+
   for (const event of session.events) {
     switch (event.type) {
-      case 'turn/end': {
-        const reason = event.data.reason
-        finishReasons.set(event.data.turn, reason as { kind: string })
-        break
-      }
       case 'tool/call':
         toolNames.set(String(event.data.callId), event.data.name)
         break
       case 'user/message': {
-        const message = toPiUserMessage(event.data as UserMessage, logger)
+        const message = toPiUserMessage(event.data as UserMessage, event.time, logger)
         const id = entryId(event.seq)
         entries.push({ type: 'message', id, parentId, timestamp: new Date(event.time).toISOString(), message })
         parentId = id
@@ -251,13 +275,17 @@ export function buildPiSessionFile(options: BuildPiSessionFileOptions): string {
   const header: PiSessionHeader = {
     type: 'session',
     version: 3,
-    id: randomUUID(),
+    id: deriveSessionId(String(session.id)),
     timestamp: new Date().toISOString(),
     cwd,
   }
   const lines = [JSON.stringify(header), ...entries.map((entry) => JSON.stringify(entry))]
   mkdirSync(dirname(filePath), { recursive: true })
-  writeFileSync(filePath, `${lines.join('\n')}\n`)
+  // Write through a temporary file so a crash mid-write cannot leave a
+  // truncated session behind (Pi would silently parse the missing lines).
+  const temporary = `${filePath}.${randomUUID().slice(0, 8)}.tmp`
+  writeFileSync(temporary, `${lines.join('\n')}\n`)
+  renameSync(temporary, filePath)
   logger?.(`[history] wrote ${entries.length} message entries to ${filePath}`)
   return filePath
 }

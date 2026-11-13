@@ -34,11 +34,39 @@ Pi 是一个极简 harness：~300 token 的系统提示词、四个工具（`rea
 | 层面 | 行为 |
 | --- | --- |
 | 系统提示词 / 工具 / 上下文 | **原封不动**——与在同一目录运行 `pi` 完全一致（`AGENTS.md` 等上下文文件由 Pi 自行加载） |
-| 模型路由 | 每会话 `set_model`；被委派的 subagent 请求的模型优先于工厂默认值 |
-| 转向（steering） | DSH 的 `send(..., 'next-turn' \| 'next-step')` 映射为 Pi 的 `steer`——可在运行中途插入指令 |
+| 模型路由 | 每会话 `set_model`；被委派的 subagent 请求的模型优先于工厂默认值。只给模型不给 provider 时借用默认的 provider——provider 位永远不会拿到模型 id |
+| 转向（steering） | DSH 的 `send(..., 'next-turn' \| 'next-step')` 映射为 Pi 的 `steer`——可在运行中途插入指令，且指令只会被投递一次 |
 | 会话持久化 | DSH 的会话事件始终是持久化的唯一事实源；每次 create/resume 都从它重建 Pi 会话文件，子进程启动即带完整历史 |
 | 审批 / 权限 | 适用 Pi 的本地信任模型——Pi 的工具调用不经过 DSH 的审批链 |
 | 回退 | 禁用本插件条目，DSH 自己的 `dsh-agent-loop` 立即恢复生效 |
+
+## 边界映射
+
+桥接层把 Pi 的内部结构翻译到 DSH 的轮次/步骤模型：
+
+| DSH | Pi |
+| --- | --- |
+| 一个 turn | 一条 `prompt` 命令（一次 Pi run） |
+| 一个 step | 一条 assistant 消息（一次模型调用 + 它请求的工具执行） |
+| step 边界 | Pi 的 `turn_end` 事件（该轮 assistant 回复结束） |
+| next-step 输入 | Pi 的 `steer` 命令（在下一次 LLM 调用前送达） |
+
+一个 turn 在 Pi 报告 `agent_settled` 时关闭——而不是 `agent_end`，后者只结束一次底层 run，重试、压缩恢复和排队任务都可能紧随其后。
+
+## DSH agent hooks
+
+插件实现了前端与策略链依赖的 agent 事件：
+
+| 事件 | 行为 |
+| --- | --- |
+| `agent/status` | `idle` ⇄ `running`，每次切换都会镜像 |
+| `agent/inbox/inserted` / `claimed` / `discarded` | 待处理输入进入步骤时被 **claim**（绝不会记成取消） |
+| `agent/pre-step` | 每个 step 前派发；`reject` 会封掉该 turn（`turn/end` 原因为 `blocked`），且不会向 Pi 发 prompt |
+| `agent/turn-stopping` | 在 turn 的停止边界派发；在那里注入的转向会在同一 turn 内再跑一个 step |
+| `agent/session-start` | 新会话为 `source: 'startup'`，从持久化恢复为 `'resume'` |
+| `agent/error` | 在存活边界上报；turn 仍以 error 原因关闭 |
+
+有两个 agent 事件 **不会** 派发，因为它们的语义无法跨进程边界成立：`agent/request` 与 `agent/request-error` 包裹的是模型调用本身，而模型调用发生在 Pi 子进程内部。需要影响模型调用的监听方应改用 Pi 自己的扩展。
 
 ## 中途衔接
 
@@ -47,6 +75,7 @@ Pi 是一个极简 harness：~300 token 的系统提示词、四个工具（`rea
 - DSH 始终是唯一事实源；Pi 文件只是重建的快照，每次 create/resume 重新生成（无漂移、无重复）。
 - DSH 消息块原生映射：`text` → `text`、`reasoning` → `thinking`、`tool-call` → `toolCall`（arguments 重新解析）、`tool/result` → `toolResult`（工具名从调用日志恢复）。
 - 图片块当前跳过（attachment 引用需要运行时附件服务）；文本历史足以承载上下文。
+- 重建后的文件保持稳定的会话身份（由 DSH 会话 id 推导），因此衔接是“续写”而不是“另起一个会话”。
 - 会话文件落在 `~/.dsh/pi-sessions/<session-id>.jsonl`，便于审计。
 
 ```
@@ -124,12 +153,32 @@ npm install dsh-pi-agent
 | `piPath` | `string` | `'pi'` | Pi 可执行文件；从 `PATH` 解析 |
 | `cwd` | `string` | `process.cwd()` | Pi 会话的工作目录 |
 | `model` | `string` | — | Pi 模型路由（`provider/model`） |
-| `debug` | `boolean` | `false` | 将协议诊断追加到 `/tmp/dsh-pi-agent.log` |
+| `debug` | `boolean` | `false` | 将协议诊断追加到 `<tmpdir>/dsh-pi-agent.log` |
+
+## 平台说明
+
+- **Windows**：Pi 以命令 shim 形式安装。插件会解析出 shim（`.exe`/`.com`/`.cmd`/`.bat`），并通过 `cmd.exe` 启动 `.cmd`/`.bat`，每个参数都做引号包裹，因此 `pi.cmd` 开箱即用。若 shim 不在 `PATH` 上，用 `piPath` 指定它。
+- **POSIX**：shim 是可执行脚本，直接 spawn。
+- 诊断日志位于平台临时目录（`os.tmpdir()`），各平台均可写。
 
 ## 调试
 
-设置 `debug: true`（或挂载时传入 `logger`）：每条 RPC 命令、事件、子进程退出和工厂生命周期步骤都会追加到 `/tmp/dsh-pi-agent.log`。Pi 自身的 stderr 也转发到同一日志。
+设置 `debug: true`：每条 RPC 命令、事件、子进程退出和工厂生命周期步骤都会追加到 `<tmpdir>/dsh-pi-agent.log`（Windows 为 `%TEMP%`，其他平台为 `/tmp`）。Pi 自身的 stderr 也转发到同一日志。`debug` 关闭时完全不安装任何 sink——协议层不格式化任何诊断信息，也不碰磁盘。
+
+## 开发
+
+```bash
+npm install
+npm run typecheck   # tsc --noEmit
+npm test            # 先构建，再跑 node:test 测试套件
+```
+
+测试覆盖历史重建（块映射、停止原因、会话身份）、Pi 事件翻译（工具结果、流式工具调用 id、settle、取消、inbox claim），以及用一个会讲真实 JSONL 协议的假 `pi` 可执行文件驱动的 RPC 客户端。
 
 ## 许可证
 
-MIT
+三选一授权：**MIT**、**Apache-2.0** 或 **商业许可**（`MIT OR Apache-2.0 OR LicenseRef-Proprietary`）。
+
+MIT 与 Apache-2.0 是完整且免费的开源授权，商业许可的存在不会对它们施加任何限制。商业许可适用于需要开源授权无法提供的条款：闭源分发且无需保留署名、版权方提供的担保或赔偿，以及豁免 Apache-2.0 的专利授权；其约束性条款以另行签署的书面协议为准。
+
+完整文本：[`LICENSE`](LICENSE)、[`LICENSE-MIT`](LICENSE-MIT)、[`LICENSE-APACHE`](LICENSE-APACHE)、[`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL)。
