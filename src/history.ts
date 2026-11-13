@@ -39,6 +39,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {
   AssistantMessage,
   ContentBlock,
+  TokenUsage,
   ToolResultMessage,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
@@ -57,12 +58,29 @@ interface PiTextBlock { type: 'text'; text: string }
 interface PiThinkingBlock { type: 'thinking'; thinking: string }
 interface PiToolCallBlock { type: 'toolCall'; id: string; name: string; arguments: Record<string, unknown> }
 
+/** Pi's token usage shape (the session reader requires it on assistant messages). */
+export interface PiUsage {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  totalTokens: number
+  cost: {
+    input: number
+    output: number
+    cacheRead: number
+    cacheWrite: number
+    total: number
+  }
+}
+
 export interface PiMessage {
   role: 'user' | 'assistant' | 'toolResult'
   content: string | Array<PiTextBlock | PiThinkingBlock | PiToolCallBlock>
   /** assistant-only */
   provider?: string
   model?: string
+  usage?: PiUsage
   stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted'
   /** toolResult-only */
   toolCallId?: string
@@ -156,6 +174,28 @@ function toPiUserMessage(message: UserMessage, timestamp: number, logger?: (line
   return { role: 'user', content: text, timestamp }
 }
 
+/**
+ * Convert a DSH token usage into Pi's usage shape.
+ *
+ * Pi's session reader needs the usage on an assistant message: without it the
+ * context estimate has no token count and the resumed run cannot prepare its
+ * request.
+ */
+function convertUsage(usage: TokenUsage | undefined): PiUsage {
+  const input = usage?.inputTokens ?? 0
+  const output = usage?.outputTokens ?? 0
+  const cacheRead = usage?.cacheReadTokens ?? 0
+  const cacheWrite = usage?.cacheWriteTokens ?? 0
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    totalTokens: input + output + cacheRead + cacheWrite,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  }
+}
+
 /** Convert a DSH assistant message to the Pi assistant message shape. */
 function toPiAssistantMessage(
   event: SessionEvent<'assistant/message'>,
@@ -172,6 +212,7 @@ function toPiAssistantMessage(
     content: blocks,
     ...(source?.provider !== undefined ? { provider: source.provider } : {}),
     ...(source?.model !== undefined ? { model: source.model } : {}),
+    usage: convertUsage(event.data.usage),
     stopReason: mapStopReason(finishReasons.get(event.data.turn), hasToolCalls),
     timestamp: event.time,
   }

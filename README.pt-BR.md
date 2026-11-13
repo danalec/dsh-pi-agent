@@ -65,7 +65,8 @@ O plugin implementa os eventos de agente dos quais o frontend e a cadeia de pol�
 | `agent/inbox/inserted` / `claimed` / `discarded` | a entrada pendente é **reivindicada** quando entra em um passo (nunca registrada como cancelamento) |
 | `agent/pre-step` | despachado antes de cada passo; um `reject` bloqueia o turno (razão `turn/end` = `blocked`) e o Pi nunca é prompted |
 | `agent/turn-stopping` | despachado na fronteira de parada do turno; a direção injetada ali roda mais um passo dentro do mesmo turno |
-| `agent/session-start` | `source: 'startup'` para uma sessão nova, `'resume'` para uma sessão persistida |
+| `agent/created` | o registro anuncia o agente com a origem da sessão (`startup` para uma nova, `resume` para uma persistida) |
+| `agent/assistant-stream` | os frames de início/chunk/fim de uma tentativa do assistant |
 | `agent/error` | reportado na fronteira viva; o turno ainda fecha com uma razão de erro |
 
 Dois eventos de agente **não** são emitidos, porque sua semântica não pode ser honrada através da fronteira de processo: `agent/request` e `agent/request-error` envolvem a própria chamada ao modelo, que acontece dentro do filho do Pi. Um listener que precise influenciar a chamada ao modelo tem de usar as próprias extensões do Pi.
@@ -76,6 +77,7 @@ Uma sessão não precisa nascer sob o Pi para ser conduzida por ele. Se uma sess
 
 - O DSH continua sendo a única fonte da verdade; o arquivo do Pi é um snapshot reconstruído, regenerado a cada create/resume (sem divergência, sem duplicação).
 - Os blocos de mensagem do DSH mapeiam nativamente: `text` → `text`, `reasoning` → `thinking`, `tool-call` → `toolCall` (arguments reanalisados), `tool/result` → `toolResult` (nome da ferramenta recuperado do log de chamadas).
+- O consumo de tokens viaja junto da mensagem do assistant: o leitor de sessão do Pi precisa dele para estimar o contexto, e uma retomada sem ele não consegue preparar a requisição.
 - Blocos de imagem são ignorados por enquanto (as referências de attachment precisam do serviço de anexos em execução); o histórico em texto carrega o contexto.
 - O arquivo reconstruído mantém uma identidade de sessão estável (derivada do id de sessão do DSH), então a passagem é uma continuação, não uma sessão nova.
 - Os arquivos de sessão ficam em `~/.dsh/pi-sessions/<session-id>.jsonl` para auditoria.
@@ -113,6 +115,23 @@ Configuração separada do loop principal: o plugin do provider é sua própria 
 ```
 
 Cada delegação spawna um `pi -p <tarefa>` novo no diretório de trabalho da sessão pai: prompt de sistema puro do Pi, suas próprias ferramentas, sua própria descoberta de `AGENTS.md`. Nada da conversa, persona ou superfície de ferramentas do pai atravessa a fronteira de processo — `inheritsParentContext: false`, zero colisão de prompt.
+
+## Compatibilidade
+
+O plugin implementa a API de agente do DSH **0.2**, não a 0.1:
+
+| API do DSH | O que o plugin faz |
+| --- | --- |
+| `ctx.agents.setFactory` | registra a fábrica do Pi de forma síncrona, então uma sessão criada logo após a montagem já encontra a fábrica |
+| `Agent.inbox` | o driver é dono da entrada pendente (`src/inbox.ts`); no DSH 0.2 `Inbox` virou interface estrutural e a implementação pertence ao driver |
+| `Agent.model` | o driver é dono da escolha durável de modelo (`src/model.ts`) |
+| `agent/created` | o registro anuncia o agente com a origem da sessão (`startup` / `resume`) |
+| `agent/assistant-stream` | os frames de início/chunk/fim de uma tentativa do assistant |
+| `assistant/message` | carrega o stream do provedor dentro do evento (`stream`), em vez de eventos de chunk separados |
+| `tool/result` | a mensagem de resultado da ferramenta carrega os blocos voltados ao modelo diretamente |
+| persistência de sessão | `persistence.create()` / `persistence.open(id, 'write')` são donos do log armazenado; os eventos chegam ao backend pela assinatura dele em `session/event` |
+
+O DSH confere a faixa de peer do plugin contra o runtime em execução no momento da instalação, então uma versão incompatível é reportada antes de o plugin ser montado.
 
 ## Requisitos
 
@@ -167,15 +186,51 @@ Monte na camada de patch do profile (`cordis.patch.yml`):
 | Chave | Tipo | Padrão | Descrição |
 | --- | --- | --- | --- |
 | `piPath` | `string` | `'pi'` | Executável do Pi; resolvido a partir do `PATH` |
-| `cwd` | `string` | `process.cwd()` | Diretório de trabalho das sessões Pi |
+| `cwd` | `string` | `process.cwd()` | Diretório de trabalho das sessões Pi (o `cwd` da própria sessão tem prioridade) |
 | `model` | `string` | — | Rota de modelo do Pi (`provider/model`) |
+| `pinModel` | `boolean` | `false` | Usar sempre `model`, ignorando a rota que o DSH pedir para a sessão. Os providers do DSH não são providers do Pi: sem isso, uma sessão criada com o seletor de modelo do frontend entregaria ao Pi uma rota que ele recusa |
 | `debug` | `boolean` | `false` | Anexa diagnósticos do protocolo a `<tmpdir>/dsh-pi-loop.log` |
+
+### Regras de montagem
+
+Duas regras decidem se o plugin sobe:
+
+1. **Um plugin novo é uma lista `insert:`.** Uma entrada `- id: pi-loop` solta
+   só sobrescreve uma entrada que já existe — o loader responde
+   `patch: entry "pi-loop" not found` e não monta nada.
+2. **Só uma fábrica de agente pode ocupar a vaga.** O `dsh-agent-loop` do
+   próprio DSH registra a fábrica primeiro, então `agent-loop` precisa estar
+   desabilitado enquanto este plugin estiver montado. Deixar os dois
+   habilitados falha com `an agent factory is already registered`.
+
+## Ciclo de vida da sessão
+
+| Fase | O que acontece |
+| --- | --- |
+| create | a sessão é preparada, o backend de persistência toma a posse de escrita do log armazenado, o arquivo de sessão do Pi é reconstruído a partir do log (ainda vazio) do DSH e o filho sobe com `--no-session` |
+| turn | a entrada do DSH é reivindicada da inbox, o prompt vai para o Pi, os eventos do Pi viram eventos de sessão do DSH e o backend os armazena pela assinatura em `session/event` |
+| resume | o log armazenado é lido de volta, um turno interrompido é fechado duravelmente, a sessão é semeada a partir do log e o filho sobe com `--session <arquivo reconstruído>` — com a conversa que ele já tinha |
+| dispose | o filho é parado, o scope é desfeito e o handle de persistência é fechado |
+
+A própria política de checkpoint do DSH faz o flush do log armazenado na fronteira da requisição, então um turno é durável quando a chamada ao modelo começa, não quando ela termina.
 
 ## Notas de plataforma
 
 - **Windows**: o Pi é instalado como um shim de comando. O plugin resolve o shim (`.exe`/`.com`/`.cmd`/`.bat`) e lança um `.cmd`/`.bat` através do `cmd.exe` com todos os argumentos entre aspas, então o `pi.cmd` funciona sem configuração. Aponte `piPath` para o shim se ele não estiver no `PATH`.
 - **POSIX**: o shim é um script executável e é gerado diretamente.
 - O arquivo de diagnóstico fica no diretório temporário da plataforma (`os.tmpdir()`), então é gravável em qualquer plataforma.
+
+## Diagnóstico
+
+| Sintoma | Causa | Correção |
+| --- | --- | --- |
+| `patch: entry "pi-loop" not found` | a entrada é um override `- id:` solto, não um `insert:` | envolva-a em `- insert:` |
+| `an agent factory is already registered` | o `agent-loop` do DSH ainda ocupa a vaga da fábrica | desabilite `agent-loop` na mesma camada de patch |
+| `no agent factory registered (load an agent-loop plugin)` | o plugin não montou (nome de entrada errado, ou o profile não tem `agent-loop` nem `pi-loop`) | confira o `name:` da entrada e os diagnósticos do loader |
+| O Pi recusa a rota de modelo | o DSH entregou ao Pi um provider do DSH | defina `model:` com uma rota do Pi e `pinModel: true` |
+| O turno retomado não responde | o arquivo de sessão do Pi reconstruído está sem o consumo de tokens do assistant | reconstrua a partir do checkout atual (`npm run build`); o Pi precisa da contagem para preparar a requisição |
+| Nada acontece no Windows | o `pi` é um shim `.cmd` que o app desktop não encontra | aponte `piPath` para o caminho absoluto do `pi.cmd` |
+| Sem diagnósticos | `debug` está desligado | defina `debug: true` e leia `%TEMP%/dsh-pi-loop.log` |
 
 ## Depuração
 

@@ -24,7 +24,14 @@ import {
   type CreateAgentOptions,
   type ResumeAgentOptions,
 } from '@deepseek-ai/dsh-agent'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import {
+  interruptedTurnClosers,
+  SessionLogOffset,
+  SessionPreparation,
+  type Session,
+  type SessionId,
+} from '@deepseek-ai/dsh-session'
+import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { buildPiSessionFile } from './history.ts'
@@ -112,29 +119,78 @@ export class PiAgentFactory implements AgentFactory {
     this.registryCtx = registryCtx
   }
 
+  /**
+   * The stored side of one session: the write handle the persistence backend
+   * owns and the number of events already written to it.
+   */
+  private static stored(handle: SessionHandle, storedCount: number): { handle: SessionHandle, storedCount: number } {
+    return { handle, storedCount }
+  }
+
+  /**
+   * Take the write ownership of a fresh session's stored log.
+   *
+   * The backend routes every live `session/event` of this session into its
+   * writer once the handle exists, so the handle must be created before the
+   * session is published.
+   */
+  private async createStoredSession(session: Session, signal: AbortSignal | undefined): Promise<{ handle: SessionHandle, storedCount: number } | undefined> {
+    const persistence = this.registryCtx.get('sessionPersistence')
+    if (persistence === undefined) return undefined
+    const handle = await persistence.create(session.header, {
+      inheritedEventCount: session.inheritedEventCount,
+      ...signal === undefined ? {} : { signal },
+    })
+    return PiAgentFactory.stored(handle, 0)
+  }
+
+  /**
+   * Write the events a session holds but never published (its constructor
+   * seed) to the stored log.
+   */
+  private async appendUnstoredSuffix(
+    stored: { handle: SessionHandle, storedCount: number } | undefined,
+    session: Session,
+  ): Promise<void> {
+    if (stored === undefined) return
+    const suffix = session.snapshotEvents(SessionLogOffset(stored.storedCount))
+    if (suffix.length > 0) await stored.handle.append(suffix)
+    stored.storedCount += suffix.length
+  }
+
   async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> {
     const id = options.sessionId
     this.options.trace?.(`createAgent id=${String(id)} meta=${JSON.stringify(options.meta)}`)
     const cwd = options.meta?.cwd ?? this.options.cwd
+    let stored: { handle: SessionHandle, storedCount: number } | undefined
     try {
-      const session = this.registryCtx.sessions.prepare(id, {
+      const preparation = SessionPreparation.create(this.registryCtx.sessions.prepare(id, {
         ...options.meta === undefined ? {} : { meta: options.meta },
         ...options.seed === undefined ? {} : { seed: options.seed },
-      })
-      const handle = await this.assembleAndPublish(
-        ownerCtx,
-        id,
-        session,
-        cwd,
-        options.agentOptions,
-        options.parentAgent,
-        options.signal,
-        options.setup,
-        'startup',
-      )
-      this.options.trace?.(`createAgent OK id=${String(id)}`)
-      return handle
+      }))
+      try {
+        const session = preparation.session
+        stored = await this.createStoredSession(session, options.signal)
+        await this.appendUnstoredSuffix(stored, session)
+        const handle = await this.assembleAndPublish(
+          ownerCtx,
+          id,
+          session,
+          cwd,
+          options.agentOptions,
+          options.parentAgent,
+          options.signal,
+          options.setup,
+          'startup',
+          stored,
+        )
+        this.options.trace?.(`createAgent OK id=${String(id)}`)
+        return handle
+      } finally {
+        preparation[Symbol.dispose]()
+      }
     } catch (error: unknown) {
+      await stored?.handle.close().catch(() => undefined)
       this.options.trace?.(`createAgent FAILED id=${String(id)}: ${String(error)}`)
       throw error
     }
@@ -147,28 +203,44 @@ export class PiAgentFactory implements AgentFactory {
     }
     const id = options.resumeSessionId
     this.options.trace?.(`resume id=${String(id)}`)
+    const signal = options.signal
+    const handle = await persistence.open(id, 'write', signal === undefined ? {} : { signal })
     try {
-      const preparation = await persistence.prepare(id)
+      const coldRead = await handle.read(SessionLogOffset(0), undefined, signal === undefined ? {} : { signal })
+      const persisted = coldRead.events
+      // A turn that was interrupted by the crash left an open boundary: close
+      // it durably before the session replays the log.
+      const closers = interruptedTurnClosers(persisted)
+      if (closers.length > 0) await handle.append(closers)
+      const preparation = SessionPreparation.create(this.registryCtx.sessions.prepare(id, {
+        seed: [...persisted, ...closers],
+        meta: structuredClone(handle.header),
+        inheritedEventCount: handle.inheritedEventCount,
+        eventState: coldRead.eventState,
+      }))
       try {
         const session = preparation.session
         const cwd = session.header.cwd ?? this.options.cwd
-        const handle = await this.assembleAndPublish(
+        const stored = PiAgentFactory.stored(handle, persisted.length + closers.length)
+        const agentHandle = await this.assembleAndPublish(
           ownerCtx,
           id,
           session,
           cwd,
           options.agentOptions,
           options.parentAgent,
-          options.signal,
+          signal,
           options.setup,
           'resume',
+          stored,
         )
         this.options.trace?.(`resume OK id=${String(id)}`)
-        return handle
+        return agentHandle
       } finally {
         preparation[Symbol.dispose]()
       }
     } catch (error: unknown) {
+      await handle.close().catch(() => undefined)
       this.options.trace?.(`resume FAILED id=${String(id)}: ${String(error)}`)
       throw error
     }
@@ -192,6 +264,7 @@ export class PiAgentFactory implements AgentFactory {
     signal: AbortSignal | undefined,
     setup: CreateAgentOptions['setup'],
     source: PiSessionStartSource,
+    stored: { handle: SessionHandle, storedCount: number } | undefined,
   ): Promise<AgentHandle> {
     ownerCtx.fiber.assertActive()
     if (signal?.aborted) throw new Error(`agent "${id}" creation aborted`)
@@ -248,6 +321,7 @@ export class PiAgentFactory implements AgentFactory {
           detachSession?.()
         } finally {
           // PiAgent.dispose() already unwinds its own scope.
+          await stored?.handle.close().catch(() => undefined)
         }
       }
     })())
