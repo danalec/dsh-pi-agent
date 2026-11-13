@@ -1,0 +1,59 @@
+Commercial License
+===================
+
+Copyright (c) 2026 Micheleww
+
+This file describes the third licensing option of dsh-pi-agent. It is not a
+self-contained grant of rights: the binding terms are the ones in the
+separate written agreement signed with the copyright holder.
+
+1. Availability
+---------------
+
+The Work is available under three alternative licenses, at the licensee's
+option:
+
+   (a) the MIT License            — see LICENSE-MIT
+   (b) the Apache License, 2.0    — see LICENSE-APACHE
+   (c) this Commercial License
+
+Options (a) and (b) are free, open-source licenses. They remain fully
+available to every licensee; nothing in this file restricts, revokes, or
+conditions them.
+
+2. When this license applies
+----------------------------
+
+This Commercial License applies when a licensee elects it, typically because
+it needs terms the open-source options do not provide, such as:
+
+   - use inside a closed-source or proprietary product without the attribution
+     and notice obligations that MIT and Apache-2.0 impose;
+   - a warranty, indemnity, or support commitment from the copyright holder;
+   - relief from the patent grant of Apache-2.0 section 3, which the MIT
+     license does not grant.
+
+3. Election
+-----------
+
+The licensee's election is made in the written agreement. Absent such an
+agreement, the Work is governed by option (a) or (b), chosen at the
+licensee's discretion.
+
+4. Terms
+--------
+
+The scope of use, the redistribution rules, the support and update
+obligations, the fees, and the limitation of liability are all fixed by that
+agreement. Where this file and the agreement differ, the agreement governs.
+
+5. No warranty
+--------------
+
+Except as expressly stated in the applicable written agreement, the Work is
+provided "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE WORK OR THE
+USE OR OTHER DEALINGS IN THE WORK.
