@@ -53,3 +53,13 @@ test('windows resolves a command shim to an executable extension', { skip: proce
   assert.equal(resolveWindowsExecutable(join(directory, 'fake-pi')), shim)
   assert.equal(resolveWindowsExecutable(join(directory, 'missing-pi')), undefined)
 })
+
+test('windows never resolves an explicit path to an extensionless shim', { skip: process.platform !== 'win32' }, () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pi-resolve-'))
+  const shim = join(directory, 'fake-pi.cmd')
+  writeFileSync(shim, '@echo off\r\n')
+  // The extensionless POSIX shim an npm-style installer drops next to the
+  // `.cmd` file is not a runnable Win32 image.
+  writeFileSync(join(directory, 'fake-pi'), '#!/bin/sh\nexec node "$@"\n')
+  assert.equal(resolveWindowsExecutable(join(directory, 'fake-pi')), shim)
+})

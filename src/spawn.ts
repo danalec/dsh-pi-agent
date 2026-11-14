@@ -31,7 +31,9 @@ export interface SpawnOptions {
  *
  * Only PATHEXT-style extensions are considered: the extensionless POSIX shim
  * that npm-style installers drop next to the `.cmd` file is not a runnable
- * Win32 image.
+ * Win32 image. That holds for an explicit path too — pointing `piPath` at
+ * the extensionless shim resolves to the `.cmd` sibling, never to the shell
+ * script Node cannot execute.
  *
  * @returns the resolved path, or `undefined` when nothing matched.
  */
@@ -40,10 +42,10 @@ export function resolveWindowsExecutable(command: string): string | undefined {
   const hasExtension = WINDOWS_EXTENSIONS.some((extension) => lower.endsWith(extension))
   const candidates: string[] = []
   if (isAbsolute(command) || command.includes('/') || command.includes('\\')) {
-    candidates.push(command)
-    if (!hasExtension) {
-      for (const extension of WINDOWS_EXTENSIONS) candidates.push(`${command}${extension}`)
-    }
+    // An explicit path is only accepted as-is when it already carries a
+    // runnable extension; otherwise the PATHEXT siblings are tried.
+    if (hasExtension) candidates.push(command)
+    for (const extension of WINDOWS_EXTENSIONS) candidates.push(`${command}${extension}`)
   } else {
     for (const directory of (process.env.PATH ?? '').split(delimiter)) {
       if (directory === '') continue
