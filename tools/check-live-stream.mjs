@@ -76,7 +76,6 @@ await ctx.plugin({ name: persistenceName, Config: PersistenceConfig, apply: appl
 const fiber = await ctx.plugin({ name, inject, Config, apply }, {
   piPath: 'C:/Users/danalec/.pi/agent/bin/pi.cmd',
   cwd: 'C:/Users/danalec',
-  model: 'minimax/MiniMax-M3.1-Flash-Preview',
   pinModel: true,
   debug: true,
 })
@@ -112,7 +111,6 @@ ctx.on('agent/assistant-stream', ({ agent, frame }) => {
 const id = SessionId(`stream-${Date.now().toString(36)}`)
 const handle = await ctx.agents.create({
   sessionId: id,
-  agentOptions: { provider: 'minimax', model: 'MiniMax-M3.1-Flash-Preview' },
   setup: (agentCtx) => {
     void agentCtx.systemPrompt
     void agentCtx.tools

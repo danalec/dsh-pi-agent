@@ -31,6 +31,16 @@ test('a requested model without a provider borrows the default provider', () => 
 test('the provider never receives a model id', () => {
   const route = resolvePiRoute('', { model: 'claude-sonnet-4-5' })
   assert.notEqual(route.provider, 'claude-sonnet-4-5')
+  // The route is the model id alone: the child resolves which provider owns
+  // it, against pi's own catalog.
+  assert.equal(route.provider, '')
+  assert.equal(route.route, 'claude-sonnet-4-5')
+})
+
+test('no route at all leaves the model to pi', () => {
+  // The plugin stipulates no model: with nothing configured, the child runs
+  // on the model the user configured in pi.
+  const route = resolvePiRoute(undefined, undefined)
   assert.equal(route.route, '')
 })
 

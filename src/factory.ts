@@ -96,9 +96,6 @@ export interface ResolvedRoute {
   piProvider: string
 }
 
-/** The provider that owns every Pi model id. */
-export const DEFAULT_PROVIDER = 'minimax'
-
 /**
  * DSH provider routes that Pi knows under another name.
  *
@@ -139,11 +136,11 @@ export function resolvePiProvider(provider: string): string {
 export function resolvePiRoute(factoryModel: string | undefined, requested: AgentOptions | undefined): ResolvedRoute {
   const fallback = factoryModel ?? ''
   const slash = fallback.indexOf('/')
-  // A model id without a provider belongs to Pi's own provider. A resumed
-  // session asks for no route of its own, so this fallback is what keeps the
-  // resumed session's messages carrying a model source. With no factory
-  // default at all there is no provider to borrow.
-  const fallbackProvider = slash > 0 ? fallback.slice(0, slash) : (fallback === '' ? '' : DEFAULT_PROVIDER)
+  // A route that names only a model has no provider: Pi's own catalog says
+  // which provider owns it, so the plugin stipulates none. A resumed
+  // session asks for no route of its own, so this fallback is what keeps
+  // the resumed session's messages carrying a model source.
+  const fallbackProvider = slash > 0 ? fallback.slice(0, slash) : ''
   const fallbackModel = slash > 0 ? fallback.slice(slash + 1) : fallback
 
   const requestedProvider = requested?.provider !== undefined && requested.provider !== ''
@@ -166,12 +163,15 @@ export function resolvePiRoute(factoryModel: string | undefined, requested: Agen
     model = fallbackModel
   }
 
-  if (provider === '' || model === '') return { route: '', provider: '', model: '', piProvider: '' }
+  if (model === '') return { route: '', provider: '', model: '', piProvider: '' }
   // The route the child receives names the Pi provider, which is not always
   // the provider the DSH session asked for. The DSH side keeps its own name:
   // the durable selection and the frontend's picker speak it.
   const piProvider = resolvePiProvider(provider)
-  return { route: `${piProvider}/${model}`, provider, model, piProvider }
+  // A route without a provider is the model id alone: the child resolves it
+  // against Pi's catalog.
+  const route = piProvider === '' ? model : `${piProvider}/${model}`
+  return { route, provider, model, piProvider }
 }
 
 export class PiAgentFactory implements AgentFactory {

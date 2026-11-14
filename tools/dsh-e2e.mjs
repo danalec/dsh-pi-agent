@@ -49,7 +49,6 @@ const fiber = await ctx.plugin({
 }, {
   piPath: 'C:/Users/danalec/.pi/agent/bin/pi.cmd',
   cwd,
-  model: 'minimax/MiniMax-M3.1-Flash-Preview',
   pinModel: true,
   debug: true,
 })
@@ -68,7 +67,6 @@ while (Date.now() < deadline) {
 const id = SessionId(`e2e-${Date.now().toString(36)}`)
 const handle = await ctx.agents.create({
   sessionId: id,
-  agentOptions: { provider: 'minimax', model: 'MiniMax-M3.1-Flash-Preview' },
   // The frontend composes the agent in this window (presets, prompt
   // sections, tools) and reads those services from the agent context: a scope
   // that cannot resolve them fails the whole session creation.

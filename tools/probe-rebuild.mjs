@@ -51,7 +51,6 @@ await ctx.plugin({ name: persistenceName, Config: PersistenceConfig, apply: appl
 const fiber = await ctx.plugin({ name, inject, Config, apply }, {
   piPath: 'C:/Users/danalec/.pi/agent/bin/pi.cmd',
   cwd: 'C:/Users/danalec',
-  model: 'minimax/MiniMax-M3.1-Flash-Preview',
   pinModel: true,
   debug: true,
 })

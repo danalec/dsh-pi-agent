@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
-const profile = process.argv[2] ?? 'desktop'
+const profile = process.argv[1]?.endsWith('read-profile-models.mjs') === true ? (process.argv[2] ?? 'desktop') : 'desktop'
 
 /**
  * The routes the profile's plugin declares.
@@ -88,7 +88,9 @@ export function profileCredentialRefs(name) {
   return [...refs]
 }
 
-const declared = profileRoutes(profile)
+// The module is also imported by other tools, and their arguments are not
+// this one's: the profile is read only when the file is run directly.
 if (process.argv[1]?.endsWith('read-profile-models.mjs')) {
+  const declared = profileRoutes(profile)
   console.log(`routes: ${declared.length}`)
 }

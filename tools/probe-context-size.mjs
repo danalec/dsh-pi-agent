@@ -86,7 +86,8 @@ function ask(label, sessionFile) {
       if (record.type === 'agent_settled') finish({ label, answer, failure })
     })
     const timer = setTimeout(() => finish({ label, answer, failure: failure ?? 'timeout' }), 150000)
-    child.stdin.write(`${JSON.stringify({ type: 'set_model', provider: 'minimax', modelId: 'MiniMax-M3.1-Flash-Preview', id: 'm' })}\n`)
+    // No route is chosen here: the child runs on the model the user
+    // configured in pi.
     child.stdin.write(`${JSON.stringify({ type: 'prompt', message: 'Reply with exactly: OK', id: 'p' })}\n`)
   })
 }

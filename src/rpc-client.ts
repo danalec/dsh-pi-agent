@@ -205,27 +205,30 @@ export class PiRpcClient {
       }, { once: true })
     }
     if (options.model !== undefined && options.model !== '') {
-      const [provider, ...rest] = options.model.split('/')
-      const modelId = rest.join('/')
-      this.ready = this.send({
-        type: 'set_model',
-        provider,
-        modelId,
-      }).then((response) => {
-        if (!response.success) {
-          throw new Error(`pi set_model failed for "${options.model}": ${response.error ?? 'unknown error'}`)
-        }
-        // The thinking level belongs to the model that is now selected:
-        // it is sent after the route, never before it.
-        if (options.thinkingLevel === undefined) return
-        return this.send({ type: 'set_thinking_level', level: options.thinkingLevel })
-          .then((level) => {
-            if (!level.success) {
-              throw new Error(
-                `pi set_thinking_level failed for "${options.thinkingLevel}": ${level.error ?? 'unknown error'}`,
-              )
-            }
-          })
+      this.ready = this.resolveRoute(options.model).then((route) => {
+        if (route === undefined) return undefined
+        const { provider, modelId } = route
+        return this.send({
+          type: 'set_model',
+          provider,
+          modelId,
+        }).then((response) => {
+          if (!response.success) {
+            throw new Error(`pi set_model failed for "${options.model}": ${response.error ?? 'unknown error'}`)
+          }
+          // The thinking level belongs to the model that is now selected:
+          // it is sent after the route, never before it.
+          if (options.thinkingLevel === undefined) return undefined
+          return this.send({ type: 'set_thinking_level', level: options.thinkingLevel })
+            .then((level) => {
+              if (!level.success) {
+                throw new Error(
+                  `pi set_thinking_level failed for "${options.thinkingLevel}": ${level.error ?? 'unknown error'}`,
+                )
+              }
+              return undefined
+            })
+        })
       })
     } else {
       this.ready = Promise.resolve()
@@ -329,6 +332,33 @@ export class PiRpcClient {
     } catch (error: unknown) {
       this.logger?.(`[pi:ui] the answer could not be written: ${String(error)}`)
     }
+  }
+
+  /**
+   * Resolve a model route into the provider and the model id Pi knows.
+   *
+   * A route that names its provider is used as it is. A route that names
+   * only a model asks Pi's own catalog: the plugin does not stipulate
+   * which provider a model belongs to.
+   *
+   * @param route - the route, `provider/model` or a bare model id.
+   * @returns the provider and the model id, or `undefined` when the route
+   * names no model.
+   */
+  private async resolveRoute(route: string): Promise<{ provider: string, modelId: string } | undefined> {
+    const slash = route.indexOf('/')
+    if (slash > 0) {
+      return { provider: route.slice(0, slash), modelId: route.slice(slash + 1) }
+    }
+    const response = await this.send({ type: 'get_available_models' })
+    const models = (response.data as { models?: { id?: string, provider?: string }[] } | undefined)?.models ?? []
+    const found = models.find(model => model.id === route)
+    if (found?.provider === undefined) {
+      throw new Error(
+        `pi does not know the model "${route}": a model id without a provider must exist in pi's catalog`,
+      )
+    }
+    return { provider: found.provider, modelId: route }
   }
 
   /**

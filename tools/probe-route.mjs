@@ -61,7 +61,7 @@ while (Date.now() < deadline) {
 const id = SessionId(`route-${Date.now().toString(36)}`)
 const handle = await ctx.agents.create({
   sessionId: id,
-  agentOptions: { provider, model },
+  agentOptions: process.env.NO_ROUTE === undefined ? { provider, model } : {},
   setup: (agentCtx) => {
     void agentCtx.systemPrompt
     void agentCtx.tools
@@ -88,6 +88,7 @@ out(`turn reason: ${turnEnd?.data.reason?.kind}`)
 if (turnEnd?.data.reason?.error) out(`error: ${String(turnEnd.data.reason.error.message).slice(0, 200)}`)
 out(`answer: ${JSON.stringify(answer.slice(0, 60))}`)
 out(`the route works: ${answer.includes('ROUTE-OK') ? 'yes' : 'NO'}`)
+out(`source no log: ${JSON.stringify(assistants[assistants.length - 1]?.data.message?.source)}`)
 
 await handle.dispose()
 await fiber.dispose()

@@ -36,7 +36,7 @@ It also makes a clean A/B experiment: same frontend, same session format, switch
 | Layer | Behavior |
 | --- | --- |
 | System prompt / tools / context | **Untouched** — identical to running `pi` in the same directory (context files like `AGENTS.md` are loaded by Pi itself) |
-| Model routing | the Pi child runs on the route the plugin's `model:` names (`pinModel: true`), and the DSH session's own model selection does not reach it — the Pi agent has a model of its own. A route Pi refuses fails the turn loudly instead of silently running Pi's default model |
+| Model routing | the plugin stipulates no model: with no `model:` configured, the Pi child runs on the model the user configured in Pi itself, and the session log records the model that actually answered. A model the plugin or a preset names is used as it is; a route Pi refuses fails the turn loudly instead of silently running another model |
 | Many models | any route Pi knows works, and the keys come from the host's credential store: the plugin resolves them and hands them to the child as environment variables, which is Pi's own mechanism. A provider Pi cannot authenticate has no models — Pi answers `set_model` with "Model not found". A gateway the DSH profile declares needs the same endpoint in Pi's model configuration — `node tools/sync-pi-providers.mjs <profile>` writes it |
 | Steering | DSH `send(..., 'next-turn' \| 'next-step')` maps to Pi's `steer` — inject instructions mid-run. The instruction is delivered to the running loop exactly once, and a batch Pi never injects is recovered and delivered as a step of its own instead of being dropped |
 | Queue | the frontend's queue dock reads the `inbox` session projection, which the native loop owns; the Pi loop registers it itself, so the queued and steering items stay visible |
@@ -219,7 +219,7 @@ Mount in the profile patch layer (`cordis.patch.yml`). A new plugin is mounted w
 | --- | --- | --- | --- |
 | `piPath` | `string` | `'pi'` | Pi executable; resolved from `PATH` |
 | `cwd` | `string` | `process.cwd()` | Working directory for Pi sessions (a session's own `cwd` wins) |
-| `model` | `string` | — | The Pi agent's own route (`provider/model`). It must be a route Pi knows: a provider Pi cannot authenticate has no models |
+| `model` | `string` | — | The Pi agent's own route (`provider/model`). Omit it and the agent runs on the model the user configured in Pi: **the plugin stipulates no model**. A route it names must be one Pi knows — a provider Pi cannot authenticate has no models |
 | `thinkingLevel` | `string` | — | The thinking level the child runs on (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). It is sent after the route, because the level belongs to the model that is selected |
 | `pinModel` | `boolean` | `true` | Always use `model`, ignoring the route the DSH session asks for. The Pi agent has a model of its own: the session's own model selection is the session's record and never reaches the child |
 | `debug` | `boolean` | `false` | Append protocol diagnostics to `<tmpdir>/dsh-pi-loop.log` |
