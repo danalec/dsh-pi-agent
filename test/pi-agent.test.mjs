@@ -355,3 +355,18 @@ test('the child events that arrive after the turn open no step', async () => {
   assert.equal(starts.length, 1, 'only the turn that ran opened a step')
   agent.dispose()
 })
+
+test('the prompt says what to do when the child is busy', async () => {
+  // The prompt opens a step of the session. Without a streaming behavior,
+  // the child refuses the command while it is processing.
+  const { rpc, agent } = createAgent()
+  agent.send(userMessage('m1', 'hello'), 'next-turn', true)
+  await waitFor(
+    () => rpc.commands.some((command) => command.type === 'prompt'),
+    2000,
+    'the prompt',
+  )
+  const command = rpc.commands.find((entry) => entry.type === 'prompt')
+  assert.equal(command.streamingBehavior, 'followUp')
+  agent.dispose()
+})

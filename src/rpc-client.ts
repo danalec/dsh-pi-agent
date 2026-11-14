@@ -67,6 +67,15 @@ export interface PiEvent {
  */
 export type PiPromptDisposition = 'started' | 'queued' | 'handled' | (string & {})
 
+/**
+ * What the child does with a prompt that arrives while it is processing.
+ *
+ * `followUp` waits for the run to finish; `steer` delivers the message
+ * before the next model call. Pi refuses a prompt that arrives during a
+ * run without one of them.
+ */
+export type PiStreamingBehavior = 'followUp' | 'steer'
+
 export interface PiRpcClientOptions {
   /** Pi executable; defaults to `pi` resolved from PATH. */
   piPath?: string
@@ -415,10 +424,15 @@ export class PiRpcClient {
    * command timeout — the run itself is bounded by the agent's lifecycle.
    *
    * @param message - the user message.
+   * @param behavior - what the child does with the message when it is
+   * already processing: `followUp` waits for the run to finish, `steer`
+   * delivers the message before the next model call.
    * @returns what Pi did with the prompt.
    */
-  async prompt(message: string): Promise<PiPromptDisposition> {
-    const response = await this.send({ type: 'prompt', message }, this.promptTimeoutMs)
+  async prompt(message: string, behavior: PiStreamingBehavior = 'followUp'): Promise<PiPromptDisposition> {
+    // The behaviour says what happens to the message when the child is
+    // already processing: without it, pi refuses the command outright.
+    const response = await this.send({ type: 'prompt', message, streamingBehavior: behavior }, this.promptTimeoutMs)
     if (!response.success) throw new Error(`pi prompt failed: ${response.error ?? 'unknown error'}`)
     const data = response.data as { disposition?: PiPromptDisposition } | undefined
     return data?.disposition ?? 'started'

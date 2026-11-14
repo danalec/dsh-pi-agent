@@ -633,7 +633,12 @@ export class PiAgent implements Agent {
     this.modelError = undefined
     this.piRunning = true
     try {
-      const disposition = await this.rpc.prompt(promptText)
+      // The prompt opens a step of this session. When the child is still
+      // processing an earlier run, the message waits for it: pi refuses a
+      // prompt that arrives during a run without saying what to do with
+      // it, and the turn would fail on a message the child would have
+      // taken.
+      const disposition = await this.rpc.prompt(promptText, 'followUp')
       if (disposition === 'handled') {
         // An extension command or input handler consumed the prompt: no run
         // started, so `agent_settled` will never arrive.

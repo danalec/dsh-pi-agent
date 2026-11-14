@@ -12,6 +12,9 @@ const respond = (payload) => {
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity })
 
+/** Whether the stand-in is busy, the way a running agent is. */
+let processing = false
+
 /**
  * The dialog an extension would open: Pi blocks until the client answers.
  *
@@ -33,7 +36,19 @@ rl.on('line', (line) => {
   }
   const { id, type } = command
   if (type === 'prompt') {
-    respond({ id, type: 'response', command: 'prompt', success: true, data: { disposition: 'started' } })
+    // Pi refuses a prompt that arrives while it is processing, unless the
+    // command says what to do with it.
+    if (command.streamingBehavior === undefined && processing) {
+      respond({
+        id,
+        type: 'response',
+        command: 'prompt',
+        success: false,
+        error: "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+      })
+      return
+    }
+    respond({ id, type: 'response', command: 'prompt', success: true, data: { disposition: processing ? 'queued' : 'started' } })
     respond({ type: 'agent_start' })
     respond({ type: 'message_start', message: { role: 'assistant', content: [] } })
     respond({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'hello' } })
@@ -48,6 +63,16 @@ rl.on('line', (line) => {
   }
   if (type === 'set_thinking_level') {
     respond({ id, type: 'response', command: 'set_thinking_level', success: true, data: { level: command.level } })
+    return
+  }
+  if (type === 'busy') {
+    processing = true
+    respond({ id, type: 'response', command: 'busy', success: true })
+    return
+  }
+  if (type === 'idle') {
+    processing = false
+    respond({ id, type: 'response', command: 'idle', success: true })
     return
   }
   if (type === 'never_answer') {

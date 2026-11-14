@@ -117,3 +117,17 @@ test('the thinking level is sent after the route it belongs to', async () => {
     client.close()
   }
 })
+
+test('a prompt that arrives while the child is busy is queued, not refused', async () => {
+  // Pi refuses a prompt that arrives during a run unless the command says
+  // what to do with it: the turn would fail on a message the child would
+  // have taken.
+  const client = new PiRpcClient({ cwd: tmpdir(), piPath: makeLauncher(), commandTimeoutMs: 10_000 })
+  try {
+    await client.send({ type: 'busy' })
+    const disposition = await client.prompt('hello')
+    assert.equal(disposition, 'queued')
+  } finally {
+    client.close()
+  }
+})

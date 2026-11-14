@@ -107,8 +107,10 @@ export class FakeRpc {
     for (const listener of [...this.exitListeners]) listener(info)
   }
 
-  async prompt(message) {
+  async prompt(message, behavior) {
     this.prompts.push(message)
+    // The command the driver sends, with the behaviour it declared.
+    this.commands.push({ type: 'prompt', message, streamingBehavior: behavior })
     // A prompt that is never answered: the driver's turn fails on it.
     if (this.neverAnswers) {
       throw new Error('pi command "prompt" timed out after 120000ms')
