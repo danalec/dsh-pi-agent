@@ -266,6 +266,8 @@ a turn is durable when the model call starts, not when it ends.
 | `no agent factory registered (load an agent-loop plugin)` | the plugin did not mount (wrong entry name, or the profile has no `agent-loop` and no `pi-loop`) | check the entry `name:` and the loader's diagnostics |
 | Pi refuses the model route | `model:` names a provider Pi does not know, or one it cannot authenticate | name a route Pi knows (`pi --list-models`) |
 | `Model not found: provider/model` | the child has no key for that provider: a provider without usable authentication has no models | the host's credential store must hold the key the provider reads (`ZAI_API_KEY`, `BAILIAN_TOKEN_PLAN_API_KEY`, …); the plugin hands the resolved keys to the child |
+| `pi command "prompt" timed out` | the child was busy: restoring a large session, compacting it, or waiting on a provider | the prompt has its own budget (`promptTimeoutMs`); a session whose log grew past the context budget is rebuilt with its oldest messages dropped |
+| `stored log is corrupt: step/start does not match the open turn and next step` | an older driver ended a turn with an error and left the child running, so the child's later steps landed after the `turn/end` | `node tools/repair-session-lifecycle.mjs <session-log>` rebuilds the lifecycle; the original is kept in `$DSH_HOME/session-repairs` |
 | The resumed turn produces no answer | the rebuilt Pi session file lacks the assistant usage | rebuild from a current checkout (`npm run build`); Pi needs the token count to prepare its request |
 | Nothing happens on Windows | `pi` is a `.cmd` shim that the desktop app cannot find | point `piPath` at the absolute `pi.cmd` path |
 | No diagnostics | `debug` is off | set `debug: true` and read `%TEMP%/dsh-pi-loop.log` |
