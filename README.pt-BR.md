@@ -37,7 +37,8 @@ Ele também torna possível um experimento A/B limpo: mesmo frontend, mesmo form
 | --- | --- |
 | Prompt de sistema / ferramentas / contexto | **Intocado** — idêntico a rodar `pi` no mesmo diretório (arquivos de contexto como `AGENTS.md` são carregados pelo próprio Pi) |
 | Roteamento de modelo | `set_model` por sessão; o modelo pedido por um subagente delegado tem precedência sobre o padrão da fábrica. Um modelo sem provider empresta o provider do padrão — o campo de provider nunca recebe um id de modelo. Uma rota que o Pi recusa falha o turno de forma explícita em vez de rodar silenciosamente no modelo padrão do Pi |
-| Direção (steering) | `send(..., 'next-turn' \| 'next-step')` do DSH mapeia para o `steer` do Pi — injete instruções no meio da execução. A instrução é entregue ao loop em execução exatamente uma vez |
+| Direção (steering) | `send(..., 'next-turn' \| 'next-step')` do DSH mapeia para o `steer` do Pi — injete instruções no meio da execução. A instrução é entregue ao loop em execução exatamente uma vez, e um lote que o Pi nunca injeta é recuperado e entregue como um passo próprio em vez de ser descartado |
+| Fila | o dock de fila do frontend lê a projeção de sessão `inbox`, que pertence ao loop nativo; o loop Pi a registra por conta própria, então os itens enfileirados e de steering continuam visíveis |
 | Persistência de sessão | Os eventos de sessão do DSH continuam sendo a fonte durável da verdade; um arquivo de sessão do Pi é reconstruído a partir deles a cada create/resume, então o filho já inicia com todo o histórico |
 | Aprovação / permissões | O modelo de confiança local do Pi se aplica — as chamadas de ferramenta do Pi não passam pela cadeia de aprovação do DSH |
 | Fallback | Desabilite a entrada deste plugin e o `dsh-agent-loop` do próprio DSH volta a valer imediatamente |

@@ -39,7 +39,8 @@ Pi 是一个极简 harness：~300 token 的系统提示词、四个工具（`rea
 | --- | --- |
 | 系统提示词 / 工具 / 上下文 | **原封不动**——与在同一目录运行 `pi` 完全一致（`AGENTS.md` 等上下文文件由 Pi 自行加载） |
 | 模型路由 | 每会话 `set_model`；被委派的 subagent 请求的模型优先于工厂默认值。只给模型不给 provider 时借用默认的 provider——provider 位永远不会拿到模型 id。Pi 拒绝的路由会让该轮明确失败，而不是悄悄跑在 Pi 的默认模型上 |
-| 转向（steering） | DSH 的 `send(..., 'next-turn' \| 'next-step')` 映射为 Pi 的 `steer`——可在运行中途插入指令，且指令只会被投递一次 |
+| 转向（steering） | DSH 的 `send(..., 'next-turn' \| 'next-step')` 映射为 Pi 的 `steer`——可在运行中途插入指令，且指令只会被投递一次；Pi 从未注入的一批会被取回，作为独立的一步交付，而不是被丢弃 |
+| 队列 | 前端的队列面板读取 `inbox` 会话投影，该投影本属于原生 loop；Pi loop 自己注册它，因此排队项和转向项始终可见 |
 | 会话持久化 | DSH 的会话事件始终是持久化的唯一事实源；每次 create/resume 都从它重建 Pi 会话文件，子进程启动即带完整历史 |
 | 审批 / 权限 | 适用 Pi 的本地信任模型——Pi 的工具调用不经过 DSH 的审批链 |
 | 回退 | 禁用本插件条目，DSH 自己的 `dsh-agent-loop` 立即恢复生效 |
