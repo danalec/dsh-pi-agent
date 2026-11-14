@@ -77,3 +77,24 @@ test('closing the client stops the child', async () => {
   assert.equal(typeof info.code, 'number')
   assert.equal(client.running, false)
 })
+
+test('a dialog request is answered, so the child is never left waiting', async () => {
+  // A Pi extension's dialog blocks the child until the client answers. An
+  // unanswered request freezes the whole child: the run stops and every
+  // later command waits behind it.
+  const client = new PiRpcClient({ cwd: tmpdir(), piPath: makeLauncher(), commandTimeoutMs: 10_000 })
+  try {
+    const answers = []
+    client.onEvent((event) => {
+      if (event.type === 'extension_ui_answered') answers.push(event.payload)
+    })
+    await client.send({ type: 'ask_dialog' })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(answers.length, 1, 'the dialog was answered')
+    assert.equal(answers[0].type, 'extension_ui_response')
+    assert.equal(answers[0].id, 'dialog-1')
+    assert.equal(answers[0].cancelled, true, 'the answer is a cancellation: the DSH frontend has no surface for it')
+  } finally {
+    client.close()
+  }
+})

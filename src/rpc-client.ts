@@ -37,6 +37,20 @@ export interface PiResponse {
   error?: string
 }
 
+/**
+ * The extension UI methods that expect no answer.
+ *
+ * They are notifications: the child does not wait for them, so answering
+ * them would only confuse the extension.
+ */
+const FIRE_AND_FORGET_UI_METHODS: ReadonlySet<string> = new Set([
+  'notify',
+  'setStatus',
+  'setWidget',
+  'setTitle',
+  'set_editor_text',
+])
+
 /** The event envelope Pi streams on stdout during a run. */
 export interface PiEvent {
   type: string
@@ -86,6 +100,15 @@ export interface PiRpcClientOptions {
    */
   commandTimeoutMs?: number
   /**
+   * Response timeout of the `prompt` command in ms. `0` disables it.
+   *
+   * The prompt's response only says the child accepted the message. A child
+   * that is restoring a large session or compacting it answers late, and a
+   * flat command timeout would turn a slow child into a failed turn.
+   * Default 600000.
+   */
+  promptTimeoutMs?: number
+  /**
    * Grace period before a still-running child is killed after `close()`.
    * Pi shuts down on stdin EOF; this is the safety net.
    */
@@ -115,6 +138,7 @@ export class PiRpcClient {
   private nextId = 0
   private readonly logger?: (line: string) => void
   private readonly commandTimeoutMs: number
+  private readonly promptTimeoutMs: number
   private readonly closeGraceMs: number
   private killTimer: NodeJS.Timeout | undefined
   private readonly exitPromise: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
@@ -124,6 +148,10 @@ export class PiRpcClient {
     this.cwd = resolve(options.cwd)
     this.logger = options.logger
     this.commandTimeoutMs = options.commandTimeoutMs ?? 120_000
+    // The prompt's answer says the child accepted the message, not that
+    // the model answered: a child restoring a large session or compacting
+    // it takes much longer than a command that only reads state.
+    this.promptTimeoutMs = options.promptTimeoutMs ?? 600_000
     this.closeGraceMs = options.closeGraceMs ?? 5_000
     this.exitPromise = new Promise((resolvePromise) => {
       this.resolveExit = resolvePromise
@@ -226,6 +254,10 @@ export class PiRpcClient {
   private dispatch(message: unknown): void {
     if (!message || typeof message !== 'object') return
     const record = message as Record<string, unknown>
+    if (record.type === 'extension_ui_request') {
+      this.answerExtensionUi(record)
+      return
+    }
     if (record.type === 'response') {
       const response = message as PiResponse
       const id = response.id ?? response.command
@@ -239,6 +271,44 @@ export class PiRpcClient {
     }
     this.logger?.(`[pi:event] ${String(record.type)}`)
     this.events.emit('event', message)
+  }
+
+  /**
+   * Answer an extension's user-interaction request.
+   *
+   * Pi's extensions can ask the user something through `ctx.ui`. In RPC mode
+   * a dialog method (`select`, `confirm`, `input`, `editor`) makes the child
+   * BLOCK until the client answers on stdin: an unanswered request freezes
+   * the whole child — the run stops, and every later command waits behind
+   * it. The DSH frontend has no surface for a Pi extension's dialog, and a
+   * frozen child takes the session down with it, so the answer is a
+   * cancellation: the extension receives `undefined` (or `false`) and the
+   * child continues.
+   *
+   * The fire-and-forget methods expect no answer and are only logged.
+   *
+   * @param request - the request envelope Pi sent.
+   */
+  private answerExtensionUi(request: Record<string, unknown>): void {
+    const id = request.id
+    const method = typeof request.method === 'string' ? request.method : ''
+    if (typeof id !== 'string' || id === '') return
+    if (FIRE_AND_FORGET_UI_METHODS.has(method)) {
+      this.logger?.(`[pi:ui] ${method} (no answer expected)`)
+      return
+    }
+    this.write({ type: 'extension_ui_response', id, cancelled: true })
+    this.logger?.(`[pi:ui] ${method} cancelled`)
+  }
+
+  /** Write one JSON line to the child's stdin. */
+  private write(payload: Record<string, unknown>): void {
+    if (!this.running) return
+    try {
+      this.proc.stdin!.write(`${JSON.stringify(payload)}\n`)
+    } catch (error: unknown) {
+      this.logger?.(`[pi:ui] the answer could not be written: ${String(error)}`)
+    }
   }
 
   /**
@@ -287,9 +357,18 @@ export class PiRpcClient {
    * The response only means the prompt was accepted, queued, or handled — it
    * does NOT mean the run finished. Use {@link PiRpcClient.onEvent} with
    * `agent_settled` to learn that Pi will not continue automatically.
+   *
+   * The response therefore answers a question about the CHILD, not about the
+   * model: a child that is restoring a large session, compacting it, or
+   * waiting on a provider takes a while to accept anything. The wait is
+   * bounded by {@link PiRpcClientOptions.promptTimeoutMs}, not by the
+   * command timeout — the run itself is bounded by the agent's lifecycle.
+   *
+   * @param message - the user message.
+   * @returns what Pi did with the prompt.
    */
   async prompt(message: string): Promise<PiPromptDisposition> {
-    const response = await this.send({ type: 'prompt', message })
+    const response = await this.send({ type: 'prompt', message }, this.promptTimeoutMs)
     if (!response.success) throw new Error(`pi prompt failed: ${response.error ?? 'unknown error'}`)
     const data = response.data as { disposition?: PiPromptDisposition } | undefined
     return data?.disposition ?? 'started'

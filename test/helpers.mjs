@@ -109,6 +109,10 @@ export class FakeRpc {
 
   async prompt(message) {
     this.prompts.push(message)
+    // A prompt that is never answered: the driver's turn fails on it.
+    if (this.neverAnswers) {
+      throw new Error('pi command "prompt" timed out after 120000ms')
+    }
     if (this.echoPrompt) this.echoUser(message)
     return this.disposition
   }

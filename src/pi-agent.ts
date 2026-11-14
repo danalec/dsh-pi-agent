@@ -71,6 +71,15 @@ export interface PiAgentOptions {
   lastTurn?: number
   /** Diagnostics sink. */
   logger?: (line: string) => void
+  /**
+   * Whether the route belongs to the agent rather than to the session.
+   *
+   * A pinned route is the agent's own: the plugin names it, and the
+   * session's model selection never reaches the child. The model facade
+   * then records the route that actually runs, so the log and the
+   * frontend's projection never name a model the child did not use.
+   */
+  pinnedRoute?: boolean
 }
 
 /**
@@ -220,6 +229,9 @@ export class PiAgent implements Agent {
   private turn = 0
   private step = 0
   private stepOpen = false
+  /** Whether a turn is open: a step may only live inside one. */
+  private turnOpen = false
+
   private assistantSeen = 0
   /** Compact provider stream of the assistant message currently being built. */
   private stream = new AssistantStreamAccumulator()
@@ -299,9 +311,10 @@ export class PiAgent implements Agent {
     // and reads the recorded choice back, so the frontend's model switcher and
     // the session log agree on the route the next step will use.
     //
-    // The selection is the DSH session's record, not the Pi child's route:
-    // the Pi agent runs on the model its own configuration names.
-    this.model = new PiModel(this.session, this.options)
+    // A pinned route is the agent's own: the Pi agent runs on the model its
+    // configuration names, and the facade records that route rather than a
+    // choice the child never applied.
+    this.model = new PiModel(this.session, this.options, options.pinnedRoute ?? true)
     this.dispatch = agentEvents(options.ctx, this)
     this.unwatch = this.rpc.onEvent((event) => this.onPiEvent(event))
     // A dead child must not leave the driver waiting forever: settle the
@@ -477,6 +490,7 @@ export class PiAgent implements Agent {
     const turn = phase.turn + 1
     try {
       this.session.append('turn/start', { turn })
+      this.turnOpen = true
     } catch (error: unknown) {
       this.throwError(error)
     }
@@ -549,10 +563,20 @@ export class PiAgent implements Agent {
       this.throwError(error)
     } finally {
       this.flushPendingSurface()
+      // The turn is over: a step may only live inside one, so the child's
+      // late events open nothing.
+      this.turnOpen = false
       try {
         this.session.append('turn/end', { turn, reason: turnEnds })
       } catch (error: unknown) {
         this.dispatch.emit('agent/error', { turn, step: this.step, error })
+      }
+      // A turn that ends in an error leaves the child running: it would keep
+      // answering, keep spending, and keep writing events into a turn that
+      // no longer exists. The child is stopped after the log says the turn
+      // is over, so the abort never delays the record.
+      if (turnEnds.kind === 'error') {
+        await this.contain(() => this.rpc.abort())
       }
     }
     // The carried messages are pending work too: a driver that stops with
@@ -653,6 +677,11 @@ export class PiAgent implements Agent {
 
   private openStep(): void {
     if (this.stepOpen) return
+    // The child's events arrive on their own schedule: a turn that ended
+    // with an error leaves the child running, and its next message would
+    // open a step outside the turn. A `step/start` without an open turn
+    // is a corrupt log, so the late events open nothing.
+    if (!this.turnOpen) return
     this.step += 1
     this.stepOpen = true
     this.session.append('step/start', { turn: this.turn, step: this.step })
@@ -662,6 +691,9 @@ export class PiAgent implements Agent {
   private closeStep(): void {
     if (!this.stepOpen) return
     this.stepOpen = false
+    // A step that outlived its turn is closed by the turn, not here:
+    // the `step/end` after the `turn/end` is a dangling boundary.
+    if (!this.turnOpen) return
     this.session.append('step/end', { turn: this.turn, step: this.step })
   }
 

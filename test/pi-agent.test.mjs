@@ -334,3 +334,24 @@ test('a model selection does not reach the child', async () => {
   )
   agent.dispose()
 })
+
+test('the child events that arrive after the turn open no step', async () => {
+  // A turn that ends in an error leaves the child running. Its next message
+  // must not open a step: a `step/start` outside a turn is a corrupt log.
+  const { session, rpc, agent } = createAgent()
+  rpc.neverAnswers = true
+  agent.send(userMessage('m1', 'hello'), 'next-turn', true)
+  await agent.whenIdle()
+
+  const turns = session.ofType('turn/end')
+  assert.equal(turns.length, 1, 'the turn ended')
+  assert.equal(turns[0].data.reason.kind, 'error', 'the turn ended with the failure')
+
+  // The child answers late, after the turn is over.
+  rpc.emit({ type: 'message_start', message: { role: 'assistant' } })
+  rpc.emit({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'late' }] } })
+
+  const starts = session.ofType('step/start')
+  assert.equal(starts.length, 1, 'only the turn that ran opened a step')
+  agent.dispose()
+})

@@ -69,24 +69,44 @@ export class PiModel implements Model {
   constructor(
     private readonly session: Session,
     private readonly options: AgentOptions,
+    /**
+     * Whether the route belongs to the agent rather than to the session.
+     *
+     * A pinned route is the agent's own: the plugin names it, and the
+     * session's model selection never reaches the child. The durable
+     * selection then records the route that actually runs, so the session
+     * log and the frontend's projection agree with the child instead of
+     * reporting a choice that was never applied.
+     */
+    private readonly pinned: boolean = true,
   ) {
     this.state = foldModelState(session)
   }
 
   /** The route the next step will use. */
   current(): Readonly<ModelSelection> | undefined {
+    if (this.pinned) return this.effective()
     const recorded = this.state.pending ?? this.state.lastUsed
     if (recorded !== null) return { ...recorded }
-    const { provider, model, reasoningEffort } = this.options
-    return provider && model ? toSelection(provider, model, reasoningEffort) : undefined
+    return this.effective()
   }
 
   /** Replace the next step's complete selection. */
   select(selection: Readonly<ModelSelection>): void {
-    const next = toSelection(selection.provider, selection.model, selection.reasoningEffort)
+    // A pinned route is the agent's own: the session's choice is recorded
+    // as the route that actually runs, so the log never names a model the
+    // child did not use.
+    const next = this.pinned
+      ? this.effective() ?? toSelection(selection.provider, selection.model, selection.reasoningEffort)
+      : toSelection(selection.provider, selection.model, selection.reasoningEffort)
     if (sameModelSelection(this.state.pending ?? this.state.lastUsed, next)) return
     const event = this.session.append('model/selection', next)
     this.state = { ...this.state, pending: event.data }
+  }
 
+  /** The route the child runs on: the agent's own. */
+  private effective(): Readonly<ModelSelection> | undefined {
+    const { provider, model, reasoningEffort } = this.options
+    return provider && model ? toSelection(provider, model, reasoningEffort) : undefined
   }
 }

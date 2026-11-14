@@ -35,7 +35,7 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { buildPiSessionFile } from './history.ts'
 import { foldModelState } from './model.ts'
-import { piModelsFile, resolvePiCredentialEnv } from './credentials.ts'
+import { piModelsFile, piRouteCredential, resolvePiCredentialEnv } from './credentials.ts'
 import { PiAgent } from './pi-agent.ts'
 import { PiRpcClient } from './rpc-client.ts'
 
@@ -307,16 +307,21 @@ export class PiAgentFactory implements AgentFactory {
 
   /**
    * Resolve the model route for one agent.
+   *
+   * A pinned route is the agent's own: the plugin names it, and the
+   * session's model selection never reaches the child. An unpinned route
+   * belongs to the session, and the session's recorded choice wins — so a
+   * resumed session keeps the model it was switched to.
    */
   private resolveRoute(requested: AgentOptions | undefined, session?: Session): ResolvedRoute {
-    // A session records the model it was switched to. The recorded choice
-    // wins over the profile default, so a resumed session keeps the model
-    // the user picked instead of falling back to the default.
+    if (this.options.pinModel !== false) {
+      return resolvePiRoute(this.options.model, undefined)
+    }
     const recorded = session === undefined ? null : foldModelState(session).pending
     if (recorded !== null) {
       return resolvePiRoute(this.options.model, { provider: recorded.provider, model: recorded.model })
     }
-    return resolvePiRoute(this.options.model, this.options.pinModel === false ? requested : undefined)
+    return resolvePiRoute(this.options.model, requested)
   }
 
   /** Mint the Pi RPC child, build the scoped PiAgent, and publish the pair. */
@@ -354,6 +359,20 @@ export class PiAgentFactory implements AgentFactory {
     // over as environment variables, which is Pi's own mechanism.
     const credentialEnv = await resolvePiCredentialEnv(this.registryCtx, piModelsFile(), this.options.trace)
     this.options.trace?.(`credentials for the child: ${Object.keys(credentialEnv).join(', ') || 'none'}`)
+    // A provider without a usable key has no models: Pi answers
+    // `set_model` with "Model not found", and a request to it never
+    // returns. The host knows the route's provider, so it says so in one
+    // sentence instead of letting the child fail in a way that looks
+    // like a hang.
+    if (provider !== '') {
+      const credential = await piRouteCredential(this.registryCtx, provider)
+      if (!credential.present && credentialEnv[credential.ref] === undefined) {
+        throw new Error(
+          `the host holds no credential for the provider "${provider}" (${credential.ref});`
+          + ' the Pi child would have no model to run on',
+        )
+      }
+    }
     const rpc = new PiRpcClient({
       cwd,
       model: route === '' ? undefined : route,
@@ -368,11 +387,14 @@ export class PiAgentFactory implements AgentFactory {
       session,
       agentOptions: {
         ...agentOptions,
-        // Only fill route fields the caller did not provide.
-        ...(provider !== '' && requested?.provider === undefined ? { provider } : {}),
-        ...(model !== '' && requested?.model === undefined ? { model } : {}),
+        // The route the child runs on — the resolved one, never the
+        // request: the request is a wish, the resolved route is the truth.
+        ...(provider !== '' ? { provider } : {}),
+        ...(model !== '' ? { model } : {}),
       },
       rpc,
+      // Whether the route belongs to the agent rather than to the session.
+      pinnedRoute: this.options.pinModel !== false,
       // Continue the session's turn sequence: a resumed session must not
       // reopen turn 1.
       lastTurn: this.registryCtx.agents.turnBoundaryOf(session).lastTurn,

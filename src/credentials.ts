@@ -142,6 +142,48 @@ export async function resolvePiCredentialEnv(
 }
 
 /**
+ * The environment variable a Pi provider reads its key from.
+ *
+ * Pi's provider registry names the key after the service: the provider id
+ * in upper case, with the dashes turned into underscores, plus
+ * `_API_KEY`. The catalog follows that rule exactly, so the name is
+ * derived rather than looked up.
+ *
+ * @param provider - the Pi provider name.
+ * @returns the environment variable name.
+ */
+export function piProviderEnvName(provider: string): string {
+  return `${provider.replace(/-/g, '_').toUpperCase()}_API_KEY`
+}
+
+/**
+ * The credential a route's provider needs, and whether the host holds it.
+ *
+ * A provider without a usable key has no models: Pi answers `set_model`
+ * with "Model not found", and a request to it never returns. The host
+ * can tell that before the child does, and say so in one sentence
+ * instead of letting the child fail in a way that looks like a timeout.
+ *
+ * @param ctx - the host context, providing the credential service.
+ * @param provider - the Pi provider of the route.
+ * @returns the credential reference, and whether the host holds it.
+ */
+export async function piRouteCredential(
+  ctx: Context,
+  provider: string,
+): Promise<{ ref: string, present: boolean }> {
+  const ref = piProviderEnvName(provider)
+  const credentials = ctx.get('credentials')
+  if (credentials === undefined) return { ref, present: false }
+  try {
+    const hit = await credentials.resolve(ref as never)
+    return { ref, present: hit !== undefined && hit.value !== '' }
+  } catch {
+    return { ref, present: false }
+  }
+}
+
+/**
  * The Pi model configuration file of this machine.
  *
  * @returns the file path.
