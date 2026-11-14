@@ -256,3 +256,103 @@ test('the message timestamp is written in Pi\'s unit', () => {
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test('a history past the budget is cut to the budget', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pi-history-'))
+  const file = join(directory, 'session.jsonl')
+  try {
+    // A long history: every entry carries a bulky block.
+    const events = []
+    for (let index = 0; index < 40; index += 1) {
+      events.push(userMessage(index, `message ${index} ${'x'.repeat(400)}`))
+    }
+    buildPiSessionFile({
+      session: session(events),
+      cwd: '/tmp/project',
+      filePath: file,
+      contextBudgetBytes: 4000,
+    })
+    const lines = readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+    const size = readFileSync(file, 'utf8').length
+    assert.ok(size <= 4000 + 1000, `the rebuilt file fits the budget (${size} bytes)`)
+    assert.ok(lines.length > 1, 'the newest messages survive')
+    // The newest message is the one that survived.
+    const last = lines[lines.length - 1]
+    assert.match(JSON.stringify(last.message.content), /message 39/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('a tool result never outlives the tool call it answers', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pi-history-'))
+  const file = join(directory, 'session.jsonl')
+  try {
+    // The tool call is old, the result is new: the cut must not leave the
+    // result behind — Pi refuses a session whose tool result names an
+    // unknown tool id.
+    const events = [
+      userMessage(0, `read it ${'x'.repeat(2000)}`),
+      assistantMessage(1, [{ type: 'tool-call', id: 'c1', name: 'read', arguments: '{}' }]),
+      { type: 'tool/call', seq: 2, time: 1_700_000_000_002, data: { turn: 1, step: 1, callId: 'c1', name: 'read', arguments: '{}' } },
+      {
+        type: 'tool/result',
+        seq: 3,
+        time: 1_700_000_000_003,
+        data: {
+          turn: 1,
+          step: 1,
+          message: {
+            id: 't1',
+            role: 'tool',
+            toolCallId: 'c1',
+            content: [{ type: 'text', text: 'the file body' }],
+            isError: false,
+            source: { kind: 'tool', name: 'read' },
+          },
+        },
+      },
+      userMessage(4, `and now ${'y'.repeat(4000)}`),
+    ]
+    buildPiSessionFile({
+      session: session(events),
+      cwd: '/tmp/project',
+      filePath: file,
+      contextBudgetBytes: 3000,
+    })
+    const lines = readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+    const toolResult = lines.find((entry) => entry.message?.role === 'toolResult')
+    assert.equal(toolResult, undefined, 'the orphaned tool result was dropped')
+    // The tool call it answered is gone with it.
+    const announced = lines.some((entry) =>
+      (entry.message?.content ?? []).some((block) => block.type === 'toolCall' && block.id === 'c1'))
+    assert.equal(announced, false)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('the kept chain starts at its own root', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pi-history-'))
+  const file = join(directory, 'session.jsonl')
+  try {
+    const events = []
+    for (let index = 0; index < 20; index += 1) {
+      events.push(userMessage(index, `message ${index} ${'x'.repeat(400)}`))
+    }
+    buildPiSessionFile({
+      session: session(events),
+      cwd: '/tmp/project',
+      filePath: file,
+      contextBudgetBytes: 3000,
+    })
+    const lines = readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+    assert.equal(lines[1].parentId, null, 'the first kept entry is the root of the kept chain')
+    // Every later entry points at its predecessor.
+    for (let index = 2; index < lines.length; index += 1) {
+      assert.equal(lines[index].parentId, lines[index - 1].id)
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})

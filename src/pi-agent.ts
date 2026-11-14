@@ -213,6 +213,8 @@ export class PiAgent implements Agent {
   private settleError: unknown = undefined
   private readonly settleWaiters: ((error: unknown) => void)[] = []
   private piRunning = false
+  /** The failure of the last model call, when the provider refused it. */
+  private modelError: Error | undefined
 
   /** Step bookkeeping. */
   private turn = 0
@@ -559,11 +561,32 @@ export class PiAgent implements Agent {
     return true
   }
 
-  /** Report one failure at its live boundary, then preserve it for driver containment. */
+  /**
+   * Report a failed model call.
+   *
+   * The failure is published at its live boundary (so the frontend shows it
+   * right away) and kept, so the run throws and the turn closes with an
+   * error reason instead of a completed turn holding an empty answer.
+   *
+   * @param detail - the provider's own error message, when Pi reported one.
+   */
+  private reportModelError(detail: unknown): void {
+    const text = typeof detail === 'string' && detail !== '' ? detail : 'the model call failed'
+    const error = new Error(text)
+    this.modelError = error
+    this.dispatch.emit('agent/error', { turn: this.turn, step: this.step, error })
+  }
+
+  /**
+   * Report one failure at its live boundary, then preserve it for driver containment. */
   private throwError(error: unknown): never {
     const turn = this.phase.kind === 'running' ? this.phase.turn : this.turn
     const step = this.phase.kind === 'running' ? this.phase.step : this.step
-    this.dispatch.emit('agent/error', { turn, step, error })
+    // A model failure is already published at its live boundary; the turn
+    // boundary carries it from there.
+    if (error !== this.modelError) {
+      this.dispatch.emit('agent/error', { turn, step, error })
+    }
     throw error
   }
 
@@ -580,6 +603,7 @@ export class PiAgent implements Agent {
     this.settleError = undefined
     this.assistantSeen = 0
     this.userEchoes = 0
+    this.modelError = undefined
     this.piRunning = true
     try {
       const disposition = await this.rpc.prompt(promptText)
@@ -590,6 +614,10 @@ export class PiAgent implements Agent {
         return
       }
       await this.waitSettled()
+      // The provider refused the model call: the run throws, so the turn
+      // closes with an error reason instead of a completed turn holding an
+      // empty answer.
+      if (this.modelError !== undefined) throw this.modelError
     } finally {
       this.piRunning = false
     }
@@ -870,6 +898,7 @@ export class PiAgent implements Agent {
             provider?: string
             model?: string
             stopReason?: string
+            errorMessage?: unknown
             usage?: unknown
           }
           | undefined
@@ -883,6 +912,15 @@ export class PiAgent implements Agent {
         if (message?.role !== 'assistant') return
         const content = Array.isArray(message.content) ? message.content : []
         const blocks = content.map(convertBlock).filter((block): block is ContentBlock => block !== undefined)
+        // A failed model call is a failure, not an answer: Pi reports it as
+        // an assistant message with an empty content and a stop reason of
+        // `error`. Writing that as an assistant message would show an empty
+        // bubble in the UI and close the turn as completed, hiding the real
+        // cause (a provider error, a context window that does not fit).
+        if (message.stopReason === 'error') {
+          this.reportModelError(message.errorMessage)
+          return
+        }
         this.openStep()
         const sourceProvider = typeof message.provider === 'string' ? message.provider : this.options.provider ?? ''
         const sourceModel = typeof message.model === 'string' ? message.model : this.options.model ?? ''

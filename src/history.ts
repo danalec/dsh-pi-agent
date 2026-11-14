@@ -105,9 +105,30 @@ export interface BuildPiSessionFileOptions {
   cwd: string
   /** Destination file path for the Pi session. */
   filePath: string
+  /**
+   * Byte budget for the rebuilt file.
+   *
+   * The rebuilt file is the child's context, and the provider refuses a
+   * request whose context does not fit the model's window ("context window
+   * exceeds limit"). A session whose log grew past the budget is rebuilt
+   * with its oldest messages dropped, the way the native loop compacts.
+   *
+   * Defaults to {@link DEFAULT_CONTEXT_BUDGET_BYTES}.
+   */
+  contextBudgetBytes?: number
   /** Diagnostics sink. */
   logger?: (line: string) => void
 }
+
+/**
+ * Default byte budget for the rebuilt Pi session file.
+ *
+ * The provider rejects the request well before this size — a session with a
+ * 90 MB file fails with "context window exceeds limit", and one with 3 MB
+ * still fits. The budget leaves room for the model's own context window and
+ * for Pi's compaction, which runs on the rebuilt file afterwards.
+ */
+export const DEFAULT_CONTEXT_BUDGET_BYTES = 1_048_576
 
 /** Map a DSH finish reason to the Pi stopReason vocabulary. */
 function mapStopReason(reason: { kind: string } | undefined, hasToolCalls: boolean): PiMessage['stopReason'] {
@@ -260,12 +281,83 @@ function deriveSessionId(seed: string): string {
 }
 
 /**
+ * Cut the rebuilt history down to the byte budget.
+ *
+ * The rebuilt file is the child's context, and the provider refuses a
+ * request whose context does not fit the model's window. The oldest
+ * messages are dropped, the way the native loop compacts.
+ *
+ * Two invariants survive the cut:
+ *
+ * - a tool result never outlives the tool call it answers. Pi rejects a
+ *   session whose tool result names an unknown tool id, so a result whose
+ *   call was dropped is dropped with it;
+ * - the chain of `parentId` links stays intact: the first kept entry
+ *   becomes the root of the kept chain.
+ *
+ * @param entries - the rebuilt entries, oldest first.
+ * @param budget - the byte budget for the serialized entries.
+ * @param logger - diagnostics sink.
+ * @returns the kept entries.
+ */
+export function fitContextBudget(
+  entries: readonly PiMessageEntry[],
+  budget: number,
+  logger?: (line: string) => void,
+): PiMessageEntry[] {
+  const sizes = entries.map((entry) => JSON.stringify(entry).length)
+  const total = sizes.reduce((sum, size) => sum + size, 0)
+  if (total <= budget) return [...entries]
+
+  // The tool call each tool result answers, and the entry that announced it.
+  const announcedAt = new Map<string, number>()
+  entries.forEach((entry, index) => {
+    const content = entry.message.content
+    if (!Array.isArray(content)) return
+    for (const block of content) {
+      if (block.type === 'toolCall') announcedAt.set(block.id, index)
+    }
+  })
+
+  // Drop from the oldest end until the rest fits.
+  let start = 0
+  let keptSize = total
+  while (start < entries.length && keptSize > budget) {
+    keptSize -= sizes[start]
+    start += 1
+  }
+
+  // A tool result whose call was dropped is dropped with it: Pi refuses a
+  // session whose tool result names an unknown tool id.
+  const kept: PiMessageEntry[] = []
+  for (let index = start; index < entries.length; index += 1) {
+    const entry = entries[index]
+    const callId = entry.message.toolCallId
+    if (callId !== undefined) {
+      const announced = announcedAt.get(callId)
+      if (announced === undefined || announced < start) continue
+    }
+    kept.push(entry)
+  }
+
+  // The kept chain starts at its own root: the parent of the first kept
+  // entry was dropped.
+  if (kept.length > 0) {
+    kept[0] = { ...kept[0], parentId: null }
+  }
+  const dropped = entries.length - kept.length
+  logger?.(`[history] dropped ${dropped} of ${entries.length} entries to fit ${budget} bytes (was ${total})`)
+  return kept
+}
+
+/**
  * Rebuild a Pi v3 session file from a DSH session's event log.
  *
  * @returns the written file path (the `filePath` argument).
  */
 export function buildPiSessionFile(options: BuildPiSessionFileOptions): string {
   const { session, cwd, filePath, logger } = options
+  const budget = options.contextBudgetBytes ?? DEFAULT_CONTEXT_BUDGET_BYTES
 
   const toolNames = new Map<string, string>()
   const finishReasons = new Map<number, { kind: string }>()
@@ -313,6 +405,8 @@ export function buildPiSessionFile(options: BuildPiSessionFileOptions): string {
     }
   }
 
+  const kept = fitContextBudget(entries, budget, logger)
+
   const header: PiSessionHeader = {
     type: 'session',
     version: 3,
@@ -320,13 +414,13 @@ export function buildPiSessionFile(options: BuildPiSessionFileOptions): string {
     timestamp: new Date().toISOString(),
     cwd,
   }
-  const lines = [JSON.stringify(header), ...entries.map((entry) => JSON.stringify(entry))]
+  const lines = [JSON.stringify(header), ...kept.map((entry) => JSON.stringify(entry))]
   mkdirSync(dirname(filePath), { recursive: true })
   // Write through a temporary file so a crash mid-write cannot leave a
   // truncated session behind (Pi would silently parse the missing lines).
   const temporary = `${filePath}.${randomUUID().slice(0, 8)}.tmp`
   writeFileSync(temporary, `${lines.join('\n')}\n`)
   renameSync(temporary, filePath)
-  logger?.(`[history] wrote ${entries.length} message entries to ${filePath}`)
+  logger?.(`[history] wrote ${kept.length} message entries to ${filePath}`)
   return filePath
 }

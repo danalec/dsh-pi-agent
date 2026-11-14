@@ -204,6 +204,51 @@ test('a resumed agent continues the session turn sequence', async () => {
   agent.dispose()
 })
 
+test('a failed model call fails the turn instead of answering with nothing', async () => {
+  const { ctx, session, rpc, agent } = createAgent()
+  const errors = []
+  ctx.on('agent/error', (payload) => { errors.push(payload.error) })
+
+  agent.send(userMessage('m1', 'hello'), 'next-turn', true)
+  await waitFor(() => rpc.prompts.length > 0, 2000, 'the prompt')
+
+  // The provider refused the call: Pi reports it as an assistant message
+  // with an empty content and a stop reason of `error`.
+  rpc.emit({
+    type: 'message_end',
+    message: {
+      role: 'assistant',
+      content: [],
+      provider: 'anthropic',
+      model: 'claude-x',
+      stopReason: 'error',
+      errorMessage: 'context window exceeds limit',
+    },
+  })
+  rpc.emit({ type: 'agent_settled', aborted: false })
+  await agent.whenIdle()
+
+  assert.equal(session.ofType('assistant/message').length, 0, 'no empty answer is recorded')
+  assert.equal(session.last('turn/end').data.reason.kind, 'error')
+  assert.match(session.last('turn/end').data.reason.error.message, /context window exceeds limit/)
+  assert.equal(errors.length, 1, 'the failure is reported at its live boundary')
+  agent.dispose()
+})
+
+test('a model error is reported even when the run settles first', async () => {
+  const { session, rpc, agent } = createAgent()
+  agent.send(userMessage('m1', 'hello'), 'next-turn', true)
+  await waitFor(() => rpc.prompts.length > 0, 2000, 'the prompt')
+  rpc.emit({
+    type: 'message_end',
+    message: { role: 'assistant', content: [], provider: 'anthropic', model: 'claude-x', stopReason: 'error', errorMessage: 'boom' },
+  })
+  rpc.emit({ type: 'agent_settled', aborted: false })
+  await agent.whenIdle()
+  assert.equal(session.last('turn/end').data.reason.kind, 'error')
+  agent.dispose()
+})
+
 test('a second assistant message opens a second step', async () => {
   const { session, rpc, agent } = createAgent()
   agent.send(userMessage('m1', 'hello'), 'next-turn', true)

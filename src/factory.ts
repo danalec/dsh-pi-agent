@@ -58,6 +58,15 @@ export interface PiFactoryOptions {
   logger?: (line: string) => void
   /** Lifecycle trace sink (apply/createAgent/resume); omit to keep quiet. */
   trace?: (line: string) => void
+  /**
+   * Byte budget for the rebuilt Pi session file.
+   *
+   * The rebuilt file is the child's context. A session whose log grew past
+   * the budget is rebuilt with its oldest messages dropped, the way the
+   * native loop compacts — without it the provider refuses the request with
+   * "context window exceeds limit" and every answer comes back empty.
+   */
+  contextBudgetBytes?: number
 }
 
 /** One resolved model route. */
@@ -288,6 +297,9 @@ export class PiAgentFactory implements AgentFactory {
       session,
       cwd,
       filePath: join(homedir(), '.dsh', 'pi-sessions', `${String(id).replace(/[^\w-]/g, '_')}.jsonl`),
+      ...(this.options.contextBudgetBytes === undefined
+        ? {}
+        : { contextBudgetBytes: this.options.contextBudgetBytes }),
       logger: this.options.logger,
     })
     const rpc = new PiRpcClient({

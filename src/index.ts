@@ -153,6 +153,15 @@ export interface Config {
    * with the frontend's model picker would hand Pi a route Pi refuses.
    */
   pinModel?: boolean
+  /**
+   * Byte budget for the Pi session file rebuilt from the DSH log.
+   *
+   * The rebuilt file is the child's context: a session whose log grew past
+   * the budget is rebuilt with its oldest messages dropped, the way the
+   * native loop compacts. Without it the provider refuses the request with
+   * "context window exceeds limit" and every answer comes back empty.
+   */
+  contextBudgetBytes?: number
   /** Protocol diagnostics; appended to `<tmpdir>/dsh-pi-loop.log`. */
   debug?: boolean
 }
@@ -162,6 +171,7 @@ export const Config = z.object({
   cwd: z.string(),
   model: z.string(),
   pinModel: z.boolean(),
+  contextBudgetBytes: z.number(),
   debug: z.boolean(),
 }) as unknown as z<Config>
 
@@ -202,6 +212,7 @@ export function apply(ctx: Context, config: Config): () => void {
         cwd,
         model: config.model,
         pinModel: config.pinModel,
+        contextBudgetBytes: config.contextBudgetBytes,
         logger,
         trace: debug ? trace : undefined,
       },

@@ -39,7 +39,8 @@ It also makes a clean A/B experiment: same frontend, same session format, switch
 | Model routing | `set_model` per session; a delegated subagent's requested model wins over the factory default. A model without a provider borrows the default's provider — the provider slot never receives a model id. A route Pi refuses fails the turn loudly instead of silently running Pi's default model |
 | Steering | DSH `send(..., 'next-turn' \| 'next-step')` maps to Pi's `steer` — inject instructions mid-run. The instruction is delivered to the running loop exactly once, and a batch Pi never injects is recovered and delivered as a step of its own instead of being dropped |
 | Queue | the frontend's queue dock reads the `inbox` session projection, which the native loop owns; the Pi loop registers it itself, so the queued and steering items stay visible |
-| Session persistence | DSH's session events remain the durable source of truth; a Pi session file is rebuilt from them on every create/resume so the child starts with full history |
+| Session persistence | DSH's session events remain the durable source of truth; a Pi session file is rebuilt from them on every create/resume so the child starts with full history. The rebuild fits a byte budget (`contextBudgetBytes`, 1 MB by default): the oldest messages are dropped, the way the native loop compacts, and a tool result never outlives the tool call it answers |
+| Model failures | A provider that refuses the call (a context window that does not fit, a rejected request) is reported at its live boundary and closes the turn with an error reason — never as an empty answer |
 | Approval / permissions | Pi's local-trust model applies — Pi tool calls do not pass through DSH's approval chain |
 | Fallback | Disable this plugin's entry and re-enable `agent-loop`: DSH's own `dsh-agent-loop` becomes active again immediately. Only one factory may hold the agent slot at a time, so the two entries are mutually exclusive |
 
