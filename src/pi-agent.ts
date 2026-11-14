@@ -253,6 +253,23 @@ export class PiAgent implements Agent {
    * prompt so nothing is lost.
    */
   private pendingPrompt: UserMessage[] = []
+  /**
+   * Steering batches handed to Pi and not yet confirmed as delivered.
+   *
+   * Pi polls its steering queue at the step boundary, so a batch that arrives
+   * after the last poll waits for the NEXT run — and the next run may never
+   * come. The batch stays here until Pi echoes it back as an injected user
+   * message; a run that settles without that echo hands the batch back to the
+   * inbox, where the turn loop delivers it as a step of its own.
+   */
+  private steeringInFlight: { messages: UserMessage[] }[] = []
+  /**
+   * User messages Pi echoed during the current run.
+   *
+   * Pi echoes the prompt first and every steering message it injects after
+   * it, so the second and later echoes are the steering deliveries.
+   */
+  private userEchoes = 0
 
   constructor(options: PiAgentOptions) {
     this.rpc = options.rpc
@@ -322,7 +339,7 @@ export class PiAgent implements Agent {
       // Pi delivers a queued steer right before its next LLM call, which is
       // exactly DSH's "next step boundary". Delivering it here (instead of at
       // the boundary) is what makes the steer reach the running loop.
-      void this.deliverNextStepToPi()
+      void this.contain(() => this.deliverNextStepToPi())
       return
     }
     this.wakeDriver()
@@ -331,6 +348,13 @@ export class PiAgent implements Agent {
   inject(message: UserMessage): void {
     // Queued for the next pre-step; it never wakes the driver on its own.
     this.inbox.append('next-step', message)
+    if (this.piRunning) {
+      // The driver is running, so the message belongs to the running loop's
+      // next step boundary. Handing it to Pi now reaches the boundary Pi
+      // takes after the current model call; leaving it in the inbox would
+      // wait for the whole run to finish.
+      void this.contain(() => this.deliverNextStepToPi())
+    }
   }
 
   cancel(cause: AgentCancelCause, options?: { keepInbox?: boolean }): void {
@@ -411,7 +435,7 @@ export class PiAgent implements Agent {
       step: 0,
       wakeRequested: false,
     })
-    void this.kick().then(driver.resolve, driver.reject)
+    this.contain(() => this.kick()).then(driver.resolve, driver.reject)
   }
 
   /** Drain turns until the queue is empty. */
@@ -490,9 +514,10 @@ export class PiAgent implements Agent {
         }
         const promptText = messages.map(extractDshText).filter((text) => text !== '').join('\n')
         try {
-          if (promptText !== '') {
-            await this.runPi(promptText)
-          }
+          // Pi runs the model even for an empty prompt, and DSH's "continue
+          // generation" is exactly that: an empty user message that asks the
+          // model to pick the generation up again.
+          await this.runPi(promptText)
         } finally {
           // The step closes even when the run failed: an open step without
           // its `step/end` leaves the durable log with a dangling boundary.
@@ -525,7 +550,9 @@ export class PiAgent implements Agent {
         this.dispatch.emit('agent/error', { turn, step: this.step, error })
       }
     }
-    if (!this.inbox.hasPending) return false
+    // The carried messages are pending work too: a driver that stops with
+    // them in hand leaves them waiting for the next wake.
+    if (!this.inbox.hasPending && this.pendingPrompt.length === 0) return false
     phase.abort = new AbortController()
     phase.wakeRequested = false
     this.step = 0
@@ -552,6 +579,7 @@ export class PiAgent implements Agent {
     this.settled = false
     this.settleError = undefined
     this.assistantSeen = 0
+    this.userEchoes = 0
     this.piRunning = true
     try {
       const disposition = await this.rpc.prompt(promptText)
@@ -625,7 +653,15 @@ export class PiAgent implements Agent {
    */
   private async deliverNextStepToPi(): Promise<void> {
     if (!this.piRunning) return
-    const batch = this.inbox.claim('next-step', this.turn)
+    let batch: UserMessage[]
+    try {
+      batch = this.inbox.claim('next-step', this.turn)
+    } catch (error: unknown) {
+      // The inbox could not be claimed (a disposed session, a broken log).
+      // The input stays pending; the turn loop picks it up later.
+      this.logger?.(`[pi-loop] could not claim the next-step input: ${String(error)}`)
+      return
+    }
     if (batch.length === 0) return
     const text = batch.map(extractDshText).filter((entry) => entry !== '').join('\n')
     if (text === '') {
@@ -637,11 +673,84 @@ export class PiAgent implements Agent {
       if (!response.success) {
         throw new Error(response.error ?? 'unknown error')
       }
-      this.pendingSurface.push(...batch)
+      // The batch is in flight: it is confirmed when Pi injects it, and
+      // recovered when the run settles without that injection.
+      this.steeringInFlight.push({ messages: batch })
     } catch (error: unknown) {
       this.logger?.(`[pi-loop] steer delivery failed: ${String(error)}`)
       this.pendingPrompt.push(...batch)
     }
+  }
+
+  /**
+   * Confirm the oldest in-flight steering batch: Pi injected it.
+   *
+   * The message reached the model, so it belongs on the durable surface.
+   */
+  private confirmSteering(): void {
+    const batch = this.steeringInFlight.shift()
+    if (batch === undefined) return
+    this.pendingSurface.push(...batch.messages)
+  }
+
+  /**
+   * Recover the steering batches Pi never injected.
+   *
+   * Pi polls its steering queue at the step boundary, so a batch handed over
+   * after the last poll waits for the NEXT run — and the next run may never
+   * come. Pi's copy is taken back (the command stream is ordered, so the
+   * `steer` this batch came from is processed before the `clear_queue` and is
+   * cleared with it) and the batch returns to the inbox, where the turn loop
+   * delivers it as a step of its own.
+   */
+  private async recoverStrandedSteering(): Promise<void> {
+    const stranded = this.steeringInFlight.splice(0)
+    if (stranded.length === 0) return
+    try {
+      // The clear is a courtesy: Pi answers it at once, and the short
+      // timeout keeps the recovery from delaying the turn when it does not.
+      await this.rpc.send({ type: 'clear_queue' }, 2000)
+    } catch (error: unknown) {
+      this.logger?.(`[pi-loop] could not clear the stranded steering queue: ${String(error)}`)
+    }
+    for (const batch of stranded) {
+      try {
+        for (const message of batch.messages) this.inbox.append('next-step', message)
+      } catch (error: unknown) {
+        this.logger?.(`[pi-loop] could not recover a stranded steering batch: ${String(error)}`)
+      }
+    }
+  }
+
+  /**
+   * Settle the run, recovering the steering Pi never injected first.
+   *
+   * The recovery runs before the settle so the turn loop finds the recovered
+   * messages in the inbox when it decides whether another step follows.
+   */
+  private async settleRun(): Promise<void> {
+    try {
+      await this.recoverStrandedSteering()
+    } catch (error: unknown) {
+      this.logger?.(`[pi-loop] the steering recovery failed: ${String(error)}`)
+    } finally {
+      this.markSettled()
+    }
+  }
+
+  /**
+   * Run a background action whose failure must never reach the process.
+   *
+   * A rejected promise nobody awaits is an unhandled rejection, and Node
+   * ends the process on one. The DSH host runs this driver, so a rejection
+   * that escaped here would kill the host with the session still open — the
+   * application would crash and stop driving the sessions. Every background
+   * action of this driver goes through this helper.
+   */
+  private contain(action: () => Promise<void>): Promise<void> {
+    return action().catch((error: unknown) => {
+      this.logger?.(`[pi-loop] background action failed: ${String(error)}`)
+    })
   }
 
   // ---- Pi event translation ----
@@ -679,6 +788,10 @@ export class PiAgent implements Agent {
         return
       }
       case 'message_update': {
+        // Pi is waiting for the provider while it streams, so its steering
+        // queue is polled again at the next step boundary: handing the pending
+        // input over now reaches that boundary.
+        if (this.inbox.nextStep.length > 0) void this.contain(() => this.deliverNextStepToPi())
         const assistantEvent = event.assistantMessageEvent as
           | {
             type: string
@@ -760,6 +873,13 @@ export class PiAgent implements Agent {
             usage?: unknown
           }
           | undefined
+        if (message?.role === 'user') {
+          // Pi echoes the prompt first and every steering message it injects
+          // after it, so the second and later echoes are steering deliveries.
+          this.userEchoes += 1
+          if (this.userEchoes > 1) this.confirmSteering()
+          return
+        }
         if (message?.role !== 'assistant') return
         const content = Array.isArray(message.content) ? message.content : []
         const blocks = content.map(convertBlock).filter((block): block is ContentBlock => block !== undefined)
@@ -797,13 +917,17 @@ export class PiAgent implements Agent {
         return
       }
       case 'turn_end': {
-        // Pi finished one assistant turn (model call plus its tool executions):
-        // this is DSH's step boundary, so pending next-step input is handed to
-        // the running loop now.
-        void this.deliverNextStepToPi()
+        // Pi finished one assistant turn (model call plus its tool executions).
+        // The steering queue is polled right after this event, so handing the
+        // input over now would be too late: it would wait for the next run.
+        // The pending input is delivered while Pi is still awaiting (see the
+        // `message_update` and `tool_execution_start` branches) instead.
         return
       }
       case 'tool_execution_start': {
+        // Pi is waiting for the tool, so the steering queue is polled again at
+        // the boundary that follows the tool execution.
+        if (this.inbox.nextStep.length > 0) void this.contain(() => this.deliverNextStepToPi())
         const start = event as { toolCallId?: unknown; toolName?: unknown; args?: unknown }
         const callId = ToolCallId(String(start.toolCallId ?? ''))
         const name = String(start.toolName ?? '')
@@ -840,8 +964,9 @@ export class PiAgent implements Agent {
       }
       case 'agent_settled': {
         // Pi will not continue automatically: retries, compaction recovery and
-        // queued work are all done.
-        this.markSettled()
+        // queued work are all done. The steering Pi never injected is
+        // recovered first, so the turn loop can still deliver it.
+        void this.contain(() => this.settleRun())
         return
       }
       case 'agent_end': {

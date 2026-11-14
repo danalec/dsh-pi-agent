@@ -66,6 +66,25 @@ export class FakeRpc {
     this.ready.catch(() => undefined)
     this.disposition = options.disposition ?? 'started'
     this.steerSucceeds = options.steerSucceeds ?? true
+    // Pi echoes the prompt it accepted, and every steering message it
+    // injects: the agent tells the two apart by that order.
+    this.echoPrompt = options.echoPrompt ?? true
+    this.echoSteering = options.echoSteering ?? true
+    /** The user messages Pi echoed back, in order. */
+    this.echoed = []
+  }
+
+  /** Echo one user message the way Pi does when it takes it into the context. */
+  echoUser(text) {
+    const message = { role: 'user', content: [{ type: 'text', text }] }
+    // A macrotask, not a microtask: Pi echoes the message long after the
+    // command was accepted, and the agent's bookkeeping depends on that
+    // order — the batch is recorded as in flight before the echo arrives.
+    setTimeout(() => {
+      this.echoed.push(text)
+      this.emit({ type: 'message_start', message })
+      this.emit({ type: 'message_end', message })
+    }, 0)
   }
 
   onEvent(listener) {
@@ -90,15 +109,20 @@ export class FakeRpc {
 
   async prompt(message) {
     this.prompts.push(message)
+    if (this.echoPrompt) this.echoUser(message)
     return this.disposition
   }
 
   async send(command) {
     this.commands.push(command)
+    const success = command.type === 'steer' ? this.steerSucceeds : true
+    if (command.type === 'steer' && success && this.echoSteering) {
+      this.echoUser(command.message)
+    }
     return {
       type: 'response',
       command: command.type,
-      success: command.type === 'steer' ? this.steerSucceeds : true,
+      success,
     }
   }
 

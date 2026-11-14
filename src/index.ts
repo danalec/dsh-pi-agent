@@ -35,6 +35,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { modelSelectionProjectionDefinition } from '@deepseek-ai/dsh-agent'
 import z from '@deepseek-ai/schemastery'
 import { PiAgentFactory } from './factory.ts'
+import { inboxProjectionDefinition } from './inbox-projection.ts'
 
 export { buildPiSessionFile } from './history.ts'
 export type {
@@ -45,6 +46,7 @@ export type {
 } from './history.ts'
 export { PiInbox, applyInboxSplice, foldInboxState } from './inbox.ts'
 export type { PiInboxNotifications, PiInboxState } from './inbox.ts'
+export { inboxProjectionDefinition, inboxProjectionSchema } from './inbox-projection.ts'
 export { PiModel, foldModelState, sameModelSelection } from './model.ts'
 export type { ModelState } from './model.ts'
 export { PiAgent } from './pi-agent.ts'
@@ -72,9 +74,57 @@ export const name = 'pi-loop'
  * @returns a promise that settles when the projection is registered.
  */
 export function registerModelSelectionProjection(ctx: Context): Promise<unknown> {
-  return ctx.sessionProjections.register(modelSelectionProjectionDefinition).catch((error: unknown) => {
+  try {
+    return ctx.sessionProjections.register(modelSelectionProjectionDefinition).catch((error: unknown) => {
+      ctx.logger.warn(`pi-loop: could not register the model selection projection: ${String(error)}`)
+    })
+  } catch (error: unknown) {
     ctx.logger.warn(`pi-loop: could not register the model selection projection: ${String(error)}`)
-  })
+    return Promise.resolve()
+  }
+}
+
+/**
+ * Register the `inbox` projection — the session's pending input.
+ *
+ * The native loop (`@deepseek-ai/dsh-agent-loop`) owns this projection, and
+ * the Pi loop replaces that plugin: with the native loop disabled, nothing
+ * else registers the key, and the frontend's queue dock — which reads
+ * `projections.faceOf('inbox')` — has nothing to render.
+ *
+ * @returns a promise that settles when the projection is registered.
+ */
+export function registerInboxProjection(ctx: Context): Promise<unknown> {
+  try {
+    return ctx.sessionProjections.register(inboxProjectionDefinition).catch((error: unknown) => {
+      ctx.logger.warn(`pi-loop: could not register the inbox projection: ${String(error)}`)
+    })
+  } catch (error: unknown) {
+    ctx.logger.warn(`pi-loop: could not register the inbox projection: ${String(error)}`)
+    return Promise.resolve()
+  }
+}
+
+/**
+ * Register every session projection the Pi loop owns.
+ *
+ * A router that owns the agent-factory slot registers both through this
+ * helper: the model route and the pending queue are the same for every
+ * engine, so one registration covers them all.
+ *
+ * @returns a promise that settles when the projections are registered.
+ */
+export async function registerSessionProjections(ctx: Context): Promise<void> {
+  try {
+    await Promise.all([
+      registerModelSelectionProjection(ctx),
+      registerInboxProjection(ctx),
+    ])
+  } catch (error: unknown) {
+    // A rejected registration must never escape: the caller fires and
+    // forgets, and an unhandled rejection ends the host process.
+    ctx.logger.warn(`pi-loop: could not register the session projections: ${String(error)}`)
+  }
 }
 
 /**
@@ -160,12 +210,12 @@ export function apply(ctx: Context, config: Config): () => void {
     const dispose = ctx.agents.setFactory(factory)
     trace('factory registered (pi loop active)')
     // The frontend reads a session's model from the standard `modelSelection`
-    // projection. Registering it is asynchronous and the factory does not
+    // projection and its pending queue from the `inbox` projection. The
+    // native loop owns both, and this plugin replaces it, so it registers
+    // them itself. Registration is asynchronous and the factory does not
     // depend on it (the agent owns its own durable selection), so it runs in
     // the background.
-    void ctx.sessionProjections.register(modelSelectionProjectionDefinition).catch((error: unknown) => {
-      ctx.logger.warn(`pi-loop: could not register the model selection projection: ${String(error)}`)
-    })
+    void registerSessionProjections(ctx)
     return dispose
   } catch (error: unknown) {
     trace(`apply failed: ${String(error)}`)

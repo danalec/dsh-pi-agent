@@ -59,6 +59,8 @@ test('a steering message reaches the running loop exactly once', async () => {
   rpc.emit({ type: 'message_start', message: { role: 'assistant', content: [] } })
   agent.steer(userMessage('m2', 'actually do this'))
   await waitFor(() => rpc.commands.some((command) => command.type === 'steer'), 2000, 'the steer command')
+  // Pi injects the steering before it answers: the echo comes first.
+  await waitFor(() => rpc.echoed.includes('actually do this'), 2000, 'the steering echo')
 
   await runOnce(rpc, 'done')
   await agent.whenIdle()
@@ -99,21 +101,113 @@ test('a turn-stopping listener can steer into another step', async () => {
   agent.dispose()
 })
 
-test('an injected message waits for the next step boundary', async () => {
+test('an injected message reaches the running loop while Pi is streaming', async () => {
   const { rpc, agent } = createAgent()
   agent.send(userMessage('m1', 'start'), 'next-turn', true)
   await waitFor(() => rpc.prompts.length > 0, 2000, 'the prompt')
 
   rpc.emit({ type: 'message_start', message: { role: 'assistant', content: [] } })
   agent.inject(userMessage('m2', 'extra context'))
-  // The injection is delivered when Pi finishes the assistant turn.
-  rpc.emit({ type: 'turn_end', message: { role: 'assistant' } })
+  // Pi is waiting for the provider while it streams: the injection is
+  // handed over right away, so it reaches the boundary Pi takes after the
+  // current model call. Waiting for `turn_end` would be too late — Pi polls
+  // its steering queue right after that event.
+  rpc.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'thinking' } })
   await waitFor(() => rpc.commands.some((command) => command.type === 'steer'), 2000, 'the injected context')
+  await waitFor(() => rpc.echoed.includes('extra context'), 2000, 'the injection echo')
 
   await runOnce(rpc, 'done')
   await agent.whenIdle()
   const steers = rpc.commands.filter((command) => command.type === 'steer')
   assert.equal(steers.length, 1)
   assert.equal(steers[0].message, 'extra context')
+  agent.dispose()
+})
+
+test('an empty message still asks the model to continue', async () => {
+  const { session, rpc, agent } = createAgent()
+  // DSH's "continue generation" sends an empty user message: the model is
+  // asked to pick the generation up again.
+  agent.send({ id: 'm1', role: 'user', content: [] }, 'next-turn', true)
+  await waitFor(() => rpc.prompts.length > 0, 2000, 'the prompt')
+  assert.equal(rpc.prompts[0], '', 'the empty prompt still reaches Pi')
+
+  await runOnce(rpc, 'continued')
+  await agent.whenIdle()
+  assert.equal(session.ofType('step/start').length, 1, 'the continuation opened a step')
+  assert.equal(session.last('assistant/message').data.message.content[0].text, 'continued')
+  agent.dispose()
+})
+
+test('a failing inbox never rejects in the background', async () => {
+  // A rejected promise nobody awaits ends the Node process, and the DSH host
+  // runs this driver: the application would crash with the session open.
+  const rejections = []
+  const onRejection = (reason) => { rejections.push(reason) }
+  process.on('unhandledRejection', onRejection)
+  try {
+    const { session } = createAgent()
+    // The session refuses every write from now on: the stranded steering
+    // cannot be recovered.
+    let broken = false
+    const brokenSession = new Proxy(session, {
+      get(target, property, receiver) {
+        if (property === 'append') {
+          return (...args) => {
+            if (broken) throw new Error('the session log is closed')
+            return Reflect.get(target, property, receiver).apply(target, args)
+          }
+        }
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    const brokenRpc = new FakeRpc({ echoSteering: false })
+    const agent2 = new PiAgent({
+      ctx: new Context(),
+      session: brokenSession,
+      agentOptions: {},
+      rpc: brokenRpc,
+    })
+    agent2.send(userMessage('m1', 'start'), 'next-turn', true)
+    await waitFor(() => brokenRpc.prompts.length > 0, 2000, 'the prompt')
+    brokenRpc.emit({ type: 'message_start', message: { role: 'assistant', content: [] } })
+    agent2.steer(userMessage('m2', 'steered'))
+    await waitFor(
+      () => brokenRpc.commands.some((command) => command.type === 'steer'),
+      2000,
+      'the steer command',
+    )
+    // The log breaks while the steering is still in flight.
+    broken = true
+    brokenRpc.emit({ type: 'agent_settled', aborted: false })
+    await agent2.whenIdle()
+    // Give the background work a chance to reject.
+    await new Promise(resolve => setTimeout(resolve, 100))
+    agent2.dispose()
+  } finally {
+    process.off('unhandledRejection', onRejection)
+  }
+  assert.deepEqual(rejections.map(String), [], 'no rejection escaped into the process')
+})
+
+test('a steering Pi never injects is recovered instead of lost', async () => {
+  const { session, rpc, agent } = createAgent({ rpc: { echoSteering: false } })
+  agent.send(userMessage('m1', 'start'), 'next-turn', true)
+  await waitFor(() => rpc.prompts.length > 0, 2000, 'the prompt')
+
+  rpc.emit({ type: 'message_start', message: { role: 'assistant', content: [] } })
+  agent.steer(userMessage('m2', 'never injected'))
+  await waitFor(() => rpc.commands.some((command) => command.type === 'steer'), 2000, 'the steer command')
+
+  // Pi settles without injecting the steering: the message must not vanish.
+  rpc.emit({ type: 'agent_settled', aborted: false })
+  await waitFor(() => rpc.prompts.length > 1, 2000, 'the recovered prompt')
+  assert.equal(rpc.prompts[1], 'never injected', 'the steering is delivered as a step of its own')
+  assert.ok(
+    rpc.commands.some((command) => command.type === 'clear_queue'),
+    "Pi's copy of the stranded steering is cleared, so it is not delivered twice",
+  )
+  const userMessages = session.ofType('user/message')
+  assert.equal(userMessages.length, 2, 'the recovered message is recorded exactly once')
   agent.dispose()
 })
