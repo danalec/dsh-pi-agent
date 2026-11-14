@@ -204,7 +204,7 @@ Mount in the profile patch layer (`cordis.patch.yml`). A new plugin is mounted w
       config:
         piPath: 'pi'                      # or an absolute path
         cwd: '/path/to/your/project'      # working directory for Pi sessions
-        model: 'anthropic/claude-sonnet-4-5'  # the Pi agent's own route
+        # no model: the child runs on the model the user chose in pi
         pinModel: true                    # the Pi agent keeps this route
         debug: false
 
