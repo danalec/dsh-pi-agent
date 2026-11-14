@@ -9,7 +9,7 @@
  * usage: node tools/dsh-e2e.mjs [cwd]
  */
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { Context } from '@deepseek-ai/cordis'
@@ -19,6 +19,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import ToolsService from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import { apply as applyPersistence, Config as PersistenceConfig, name as persistenceName } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { apply, Config, inject, name } from '../dist/index.js'
 
@@ -35,6 +36,9 @@ await ctx.plugin(SessionProjectionRegistry)
 await ctx.plugin(LlmRuntime)
 await ctx.plugin(ToolsService)
 await ctx.plugin(SystemPrompt)
+// The Pi child is another process: the keys it needs come from the host's
+// credential service, which the driver resolves and hands over.
+await ctx.plugin(LocalCredentialProvider, { dshHome: join(homedir(), '.dsh') })
 await ctx.plugin({ name: persistenceName, Config: PersistenceConfig, apply: applyPersistence }, { root: store })
 
 const fiber = await ctx.plugin({

@@ -14,6 +14,9 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import ToolsService from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { apply, Config, inject, name } from '../dist/index.js'
 
 const ctx = new Context()
@@ -23,6 +26,9 @@ await ctx.plugin(SessionProjectionRegistry)
 await ctx.plugin(LlmRuntime)
 await ctx.plugin(ToolsService)
 await ctx.plugin(SystemPrompt)
+// The Pi child is another process: the keys it needs come from the
+// host's credential service, which the driver resolves and hands over.
+await ctx.plugin(LocalCredentialProvider, { dshHome: join(homedir(), '.dsh') })
 
 const fiber = await ctx.plugin({ name, inject, Config, apply }, {
   piPath: 'C:/Users/danalec/.pi/agent/bin/pi.cmd',
