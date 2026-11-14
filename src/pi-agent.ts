@@ -225,6 +225,16 @@ export class PiAgent implements Agent {
   private attemptId: LlmAttemptId | undefined
   /** Monotone revision of the assistant attempts of this agent. */
   private attemptRevision = 0
+  /**
+   * Monotone revision of the assistant frames of this agent lifecycle.
+   *
+   * DSH's session controller accepts an assistant frame only when its
+   * revision is the successor of the last one it took (`revision + 1`), so
+   * the revision is allocated per FRAME, not per attempt: a per-attempt
+   * revision would make every chunk after the first one a gap, and the
+   * controller would drop the whole live stream.
+   */
+  private frameRevision = 0
   /** Number of chunk frames published for the current attempt. */
   private chunkIndex = 0
   private readonly toolCallSeqs = new Map<string, SessionSeq>()
@@ -479,10 +489,15 @@ export class PiAgent implements Agent {
           this.session.append('user/message', message, { surfaceOp: 'append' })
         }
         const promptText = messages.map(extractDshText).filter((text) => text !== '').join('\n')
-        if (promptText !== '') {
-          await this.runPi(promptText)
+        try {
+          if (promptText !== '') {
+            await this.runPi(promptText)
+          }
+        } finally {
+          // The step closes even when the run failed: an open step without
+          // its `step/end` leaves the durable log with a dangling boundary.
+          this.closeStep()
         }
-        this.closeStep()
 
         signal.throwIfAborted()
         if (this.inbox.nextStep.length === 0) {
@@ -529,6 +544,11 @@ export class PiAgent implements Agent {
 
   /** Send one prompt to Pi and wait until Pi reports the run settled. */
   private async runPi(promptText: string): Promise<void> {
+    // A refused model route must fail loudly: `ready` settles when the
+    // initial `set_model` was accepted or rejected. Awaiting it before the
+    // first prompt is what turns "Pi refused the route" into a failed turn
+    // instead of a silent run on Pi's own default model.
+    await this.rpc.ready
     this.settled = false
     this.settleError = undefined
     this.assistantSeen = 0
@@ -651,7 +671,7 @@ export class PiAgent implements Agent {
           frame: {
             type: 'start',
             attemptId: this.attemptId,
-            revision: this.attemptRevision,
+            revision: this.nextFrameRevision(),
             turn: this.turn,
             step: this.step,
           },
@@ -768,7 +788,7 @@ export class PiAgent implements Agent {
             frame: {
               type: 'end',
               attemptId,
-              revision: this.attemptRevision,
+              revision: this.nextFrameRevision(),
               index: this.chunkIndex,
               outcome: { kind: 'committed', eventType: 'assistant/message', seq: committed.seq },
             },
@@ -844,13 +864,23 @@ export class PiAgent implements Agent {
       frame: {
         type: 'chunk',
         attemptId,
-        revision: this.attemptRevision,
+        revision: this.nextFrameRevision(),
         index: this.chunkIndex,
         time,
         chunk,
       },
     })
     this.chunkIndex += 1
+  }
+
+  /**
+   * Allocate the next assistant frame revision.
+   *
+   * @returns the dense successor of the last emitted frame revision.
+   */
+  private nextFrameRevision(): number {
+    this.frameRevision += 1
+    return this.frameRevision
   }
 
   /** Tear down: stop Pi and unwind the scoped context. */

@@ -36,7 +36,7 @@ It also makes a clean A/B experiment: same frontend, same session format, switch
 | Layer | Behavior |
 | --- | --- |
 | System prompt / tools / context | **Untouched** — identical to running `pi` in the same directory (context files like `AGENTS.md` are loaded by Pi itself) |
-| Model routing | `set_model` per session; a delegated subagent's requested model wins over the factory default. A model without a provider borrows the default's provider — the provider slot never receives a model id |
+| Model routing | `set_model` per session; a delegated subagent's requested model wins over the factory default. A model without a provider borrows the default's provider — the provider slot never receives a model id. A route Pi refuses fails the turn loudly instead of silently running Pi's default model |
 | Steering | DSH `send(..., 'next-turn' \| 'next-step')` maps to Pi's `steer` — inject instructions mid-run. The instruction is delivered to the running loop exactly once |
 | Session persistence | DSH's session events remain the durable source of truth; a Pi session file is rebuilt from them on every create/resume so the child starts with full history |
 | Approval / permissions | Pi's local-trust model applies — Pi tool calls do not pass through DSH's approval chain |

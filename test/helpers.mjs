@@ -58,7 +58,12 @@ export class FakeRpc {
     this.commands = []
     this.aborted = false
     this.closed = false
-    this.ready = Promise.resolve()
+    // `ready` settles when the initial `set_model` was accepted (or refused).
+    this.ready = options.readyError === undefined
+      ? Promise.resolve()
+      : Promise.reject(options.readyError)
+    // A refused route must not become an unhandled rejection.
+    this.ready.catch(() => undefined)
     this.disposition = options.disposition ?? 'started'
     this.steerSucceeds = options.steerSucceeds ?? true
   }

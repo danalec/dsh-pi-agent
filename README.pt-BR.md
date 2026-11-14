@@ -36,7 +36,7 @@ Ele também torna possível um experimento A/B limpo: mesmo frontend, mesmo form
 | Camada | Comportamento |
 | --- | --- |
 | Prompt de sistema / ferramentas / contexto | **Intocado** — idêntico a rodar `pi` no mesmo diretório (arquivos de contexto como `AGENTS.md` são carregados pelo próprio Pi) |
-| Roteamento de modelo | `set_model` por sessão; o modelo pedido por um subagente delegado tem precedência sobre o padrão da fábrica. Um modelo sem provider empresta o provider do padrão — o campo de provider nunca recebe um id de modelo |
+| Roteamento de modelo | `set_model` por sessão; o modelo pedido por um subagente delegado tem precedência sobre o padrão da fábrica. Um modelo sem provider empresta o provider do padrão — o campo de provider nunca recebe um id de modelo. Uma rota que o Pi recusa falha o turno de forma explícita em vez de rodar silenciosamente no modelo padrão do Pi |
 | Direção (steering) | `send(..., 'next-turn' \| 'next-step')` do DSH mapeia para o `steer` do Pi — injete instruções no meio da execução. A instrução é entregue ao loop em execução exatamente uma vez |
 | Persistência de sessão | Os eventos de sessão do DSH continuam sendo a fonte durável da verdade; um arquivo de sessão do Pi é reconstruído a partir deles a cada create/resume, então o filho já inicia com todo o histórico |
 | Aprovação / permissões | O modelo de confiança local do Pi se aplica — as chamadas de ferramenta do Pi não passam pela cadeia de aprovação do DSH |

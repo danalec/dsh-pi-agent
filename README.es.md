@@ -38,7 +38,7 @@ También permite un experimento A/B limpio: mismo frontend, mismo formato de ses
 | Capa | Comportamiento |
 | --- | --- |
 | Prompt de sistema / herramientas / contexto | **Intacto** — idéntico a ejecutar `pi` en el mismo directorio (los archivos de contexto como `AGENTS.md` los carga el propio Pi) |
-| Enrutamiento de modelo | `set_model` por sesión; el modelo solicitado por un subagente delegado tiene prioridad sobre el valor por defecto de la fábrica. Un modelo sin proveedor toma prestada el proveedor del valor por defecto — el campo de proveedor nunca recibe un id de modelo |
+| Enrutamiento de modelo | `set_model` por sesión; el modelo solicitado por un subagente delegado tiene prioridad sobre el valor por defecto de la fábrica. Un modelo sin proveedor toma prestada el proveedor del valor por defecto — el campo de proveedor nunca recibe un id de modelo. Una ruta que Pi rechaza hace fallar el turno de forma explícita en vez de ejecutarse en silencio con el modelo por defecto de Pi |
 | Dirección (steering) | `send(..., 'next-turn' \| 'next-step')` de DSH se corresponde con el `steer` de Pi — inyecta instrucciones a mitad de ejecución. La instrucción se entrega al loop en marcha exactamente una vez |
 | Persistencia de sesión | Los eventos de sesión de DSH siguen siendo la fuente durable de verdad; un archivo de sesión de Pi se reconstruye a partir de ellos en cada create/resume, así que el hijo arranca con todo el historial |
 | Aprobación / permisos | Se aplica el modelo de confianza local de Pi — las llamadas a herramientas de Pi no pasan por la cadena de aprobación de DSH |

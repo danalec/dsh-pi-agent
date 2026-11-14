@@ -225,3 +225,53 @@ test('a second assistant message opens a second step', async () => {
   assert.equal(call.data.step, 1)
   agent.dispose()
 })
+
+test('the assistant frames carry a dense monotone revision', async () => {
+  const { ctx, rpc, agent } = createAgent()
+  const frames = []
+  ctx.on('agent/assistant-stream', (payload) => { frames.push(payload.frame) })
+
+  agent.send(userMessage('m1', 'hello'), 'next-turn', true)
+  await waitFor(() => rpc.prompts.length > 0, 2000, 'the prompt')
+  rpc.emit({ type: 'message_start', message: { role: 'assistant', content: [] } })
+  rpc.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'hi' } })
+  rpc.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: ' there' } })
+  rpc.emit({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'hi there' }], provider: 'anthropic', model: 'claude-x' } })
+  rpc.emit({ type: 'agent_settled', aborted: false })
+  await agent.whenIdle()
+
+  assert.deepEqual(frames.map(frame => frame.type), ['start', 'chunk', 'chunk', 'end'])
+  // DSH's session controller keeps only a frame whose revision is the
+  // successor of the last one it accepted: a gap drops the live stream.
+  assert.deepEqual(frames.map(frame => frame.revision), [1, 2, 3, 4])
+  // The chunk index is dense and zero-based within the attempt.
+  assert.deepEqual(frames.filter(frame => frame.type === 'chunk').map(frame => frame.index), [0, 1])
+  assert.equal(frames.at(-1).index, 2, 'the end frame counts the chunk frames')
+  agent.dispose()
+})
+
+test('a refused model route fails the turn instead of running Pi anyway', async () => {
+  const { session, rpc, agent } = createAgent({
+    rpc: { readyError: new Error('pi set_model failed for "bogus/model"') },
+  })
+  agent.send(userMessage('m1', 'hello'), 'next-turn', true)
+  await waitFor(() => session.ofType('turn/end').length > 0, 2000, 'the turn to close')
+
+  assert.equal(rpc.prompts.length, 0, 'Pi was never prompted')
+  const turnEnd = session.last('turn/end')
+  assert.equal(turnEnd.data.reason.kind, 'error')
+  assert.match(turnEnd.data.reason.error.message, /set_model failed/)
+  agent.dispose()
+})
+
+test('a failed run still closes the step', async () => {
+  const { session, rpc, agent } = createAgent()
+  agent.send(userMessage('m1', 'hello'), 'next-turn', true)
+  await waitFor(() => rpc.prompts.length > 0, 2000, 'the prompt')
+  rpc.exit({ code: 1, signal: null })
+  await agent.whenIdle()
+
+  assert.equal(session.ofType('step/start').length, 1)
+  assert.equal(session.ofType('step/end').length, 1, 'the step closes even when the run failed')
+  agent.dispose()
+})
