@@ -63,3 +63,31 @@ test('windows never resolves an explicit path to an extensionless shim', { skip:
   writeFileSync(join(directory, 'fake-pi'), '#!/bin/sh\nexec node "$@"\n')
   assert.equal(resolveWindowsExecutable(join(directory, 'fake-pi')), shim)
 })
+
+test('a session route crosses to the child unchanged', () => {
+  // The DSH provider names and the Pi provider names are the same: a route
+  // crosses the boundary without a translation table.
+  const route = resolvePiRoute('minimax/MiniMax-M3.1-Flash', { provider: 'zai', model: 'glm-5.3-flash' })
+  assert.equal(route.route, 'zai/glm-5.3-flash')
+  assert.equal(route.provider, 'zai')
+  assert.equal(route.model, 'glm-5.3-flash')
+})
+
+test('a gateway route crosses to the child unchanged', () => {
+  const route = resolvePiRoute('minimax/MiniMax-M3.1-Flash', { provider: 'bailian-tpp', model: 'qwen3.8-max' })
+  assert.equal(route.route, 'bailian-tpp/qwen3.8-max')
+})
+
+test('a route without a model borrows the default model', () => {
+  const route = resolvePiRoute('minimax/MiniMax-M3.1-Flash', { provider: 'deepseek' })
+  assert.equal(route.route, 'deepseek/MiniMax-M3.1-Flash')
+})
+
+test('a harness route crosses to the Pi provider that serves it', () => {
+  // The harness's own DeepSeek route and Pi's DeepSeek provider are the
+  // same service; the model ids match one for one.
+  const route = resolvePiRoute('minimax/MiniMax-M3.1-Flash', { provider: 'deepseek-official', model: 'deepseek-flash' })
+  assert.equal(route.route, 'deepseek/deepseek-flash')
+  assert.equal(route.provider, 'deepseek-official', 'the harness keeps its own provider name')
+  assert.equal(route.piProvider, 'deepseek')
+})

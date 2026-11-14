@@ -320,3 +320,17 @@ test('a failed run still closes the step', async () => {
   assert.equal(session.ofType('step/end').length, 1, 'the step closes even when the run failed')
   agent.dispose()
 })
+
+test('a model selection reaches the child', async () => {
+  const { rpc, agent } = createAgent()
+  agent.model.select({ provider: 'zai', model: 'glm-5.3-flash' })
+  await waitFor(
+    () => rpc.commands.some((command) => command.type === 'set_model'),
+    2000,
+    'the model switch',
+  )
+  const command = rpc.commands.find((entry) => entry.type === 'set_model')
+  assert.equal(command.provider, 'zai')
+  assert.equal(command.modelId, 'glm-5.3-flash')
+  agent.dispose()
+})

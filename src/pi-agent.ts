@@ -297,8 +297,11 @@ export class PiAgent implements Agent {
     } satisfies PiInboxNotifications)
     // The model facade is driver-owned: it records a durable `model/selection`
     // and reads the recorded choice back, so the frontend's model switcher and
-    // the session log agree on the route the next step will use.
-    this.model = new PiModel(this.session, this.options)
+    // the session log agree on the route the next step will use. A selection
+    // also reaches the child: the Pi child owns the route it runs on.
+    this.model = new PiModel(this.session, this.options, (provider, model) => {
+      void this.contain(() => this.rpc.setModel(provider, model))
+    })
     this.dispatch = agentEvents(options.ctx, this)
     this.unwatch = this.rpc.onEvent((event) => this.onPiEvent(event))
     // A dead child must not leave the driver waiting forever: settle the

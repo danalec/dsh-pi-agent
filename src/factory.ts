@@ -34,6 +34,7 @@ import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { buildPiSessionFile } from './history.ts'
+import { foldModelState } from './model.ts'
 import { PiAgent } from './pi-agent.ts'
 import { PiRpcClient } from './rpc-client.ts'
 
@@ -73,12 +74,43 @@ export interface PiFactoryOptions {
 export interface ResolvedRoute {
   /** `provider/model`, or empty when no route could be resolved. */
   route: string
+  /** The provider the DSH session records, as the harness knows it. */
   provider: string
+  /** The model id, shared by both sides. */
   model: string
+  /** The provider the Pi child knows the route under. */
+  piProvider: string
 }
 
 /** The provider that owns every Pi model id. */
 export const DEFAULT_PROVIDER = 'minimax'
+
+/**
+ * DSH provider routes that Pi knows under another name.
+ *
+ * The DSH profile composes its providers from several plugins: the
+ * `dsh-llm-pi-ai` adapter over Pi's own model registry, and the harness's
+ * own DeepSeek routes. A route that names a provider Pi ships keeps its
+ * name; a route that names the same service under another name is mapped
+ * here, and the model ids match one for one.
+ *
+ * `deepseek-official` is the harness's route for DeepSeek's own API; Pi
+ * ships the same service as `deepseek`.
+ */
+export const PI_PROVIDER_ALIASES: Readonly<Record<string, string>> = {
+  'deepseek-official': 'deepseek',
+}
+
+/**
+ * Translate a DSH provider route into the Pi provider that serves it.
+ *
+ * @param provider - the provider the DSH session asked for.
+ * @returns the Pi provider name.
+ */
+export function resolvePiProvider(provider: string): string {
+  return PI_PROVIDER_ALIASES[provider] ?? provider
+}
+
 
 /**
  * Resolve the model route for one agent.
@@ -120,8 +152,12 @@ export function resolvePiRoute(factoryModel: string | undefined, requested: Agen
     model = fallbackModel
   }
 
-  if (provider === '' || model === '') return { route: '', provider: '', model: '' }
-  return { route: `${provider}/${model}`, provider, model }
+  if (provider === '' || model === '') return { route: '', provider: '', model: '', piProvider: '' }
+  // The route the child receives names the Pi provider, which is not always
+  // the provider the DSH session asked for. The DSH side keeps its own name:
+  // the durable selection and the frontend's picker speak it.
+  const piProvider = resolvePiProvider(provider)
+  return { route: `${piProvider}/${model}`, provider, model, piProvider }
 }
 
 export class PiAgentFactory implements AgentFactory {
@@ -268,7 +304,14 @@ export class PiAgentFactory implements AgentFactory {
   /**
    * Resolve the model route for one agent.
    */
-  private resolveRoute(requested: AgentOptions | undefined): ResolvedRoute {
+  private resolveRoute(requested: AgentOptions | undefined, session?: Session): ResolvedRoute {
+    // A session records the model it was switched to. The recorded choice
+    // wins over the profile default, so a resumed session keeps the model
+    // the user picked instead of falling back to the default.
+    const recorded = session === undefined ? null : foldModelState(session).pending
+    if (recorded !== null) {
+      return resolvePiRoute(this.options.model, { provider: recorded.provider, model: recorded.model })
+    }
     return resolvePiRoute(this.options.model, this.options.pinModel === true ? undefined : requested)
   }
 
@@ -288,7 +331,7 @@ export class PiAgentFactory implements AgentFactory {
     if (signal?.aborted) throw new Error(`agent "${id}" creation aborted`)
 
     const requested = agentOptions
-    const { route, provider, model } = this.resolveRoute(requested)
+    const { route, provider, model } = this.resolveRoute(requested, session)
 
     // Rebuild the Pi session from DSH's durable log: the child inherits the
     // complete conversation (DSH-native turns and earlier Pi turns alike), so

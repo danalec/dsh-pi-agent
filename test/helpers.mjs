@@ -130,6 +130,12 @@ export class FakeRpc {
     this.aborted = true
   }
 
+  /** Switch the child to another model. */
+  async setModel(provider, modelId) {
+    this.commands.push({ type: 'set_model', provider, modelId })
+    return { type: 'response', command: 'set_model', success: true }
+  }
+
   close() {
     this.closed = true
   }
