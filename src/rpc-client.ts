@@ -411,6 +411,23 @@ export class PiRpcClient {
   }
 
   /**
+   * Switch the child to another model.
+   *
+   * The route names the Pi provider and the model id Pi knows it under. A
+   * route Pi refuses is reported: the session must not keep running on the
+   * previous model as if the switch had happened.
+   *
+   * @param provider - the Pi provider name.
+   * @param modelId - the model id within that provider.
+   */
+  async setModel(provider: string, modelId: string): Promise<void> {
+    const response = await this.send({ type: 'set_model', provider, modelId })
+    if (!response.success) {
+      throw new Error(`pi set_model failed for "${provider}/${modelId}": ${response.error ?? 'unknown error'}`)
+    }
+  }
+
+  /**
    * Send a prompt and report what Pi did with it.
    *
    * The response only means the prompt was accepted, queued, or handled — it

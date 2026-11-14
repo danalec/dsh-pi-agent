@@ -79,6 +79,14 @@ export class PiModel implements Model {
      * reporting a choice that was never applied.
      */
     private readonly pinned: boolean = true,
+    /**
+     * Applies a selection to the child.
+     *
+     * A session that owns its route (the plugin does not pin one) hands the
+     * choice to the child: a recorded selection that never reaches the child
+     * would be a lie in the log.
+     */
+    private readonly applyRoute?: (provider: string, model: string) => void,
   ) {
     this.state = foldModelState(session)
   }
@@ -102,6 +110,8 @@ export class PiModel implements Model {
     if (sameModelSelection(this.state.pending ?? this.state.lastUsed, next)) return
     const event = this.session.append('model/selection', next)
     this.state = { ...this.state, pending: event.data }
+    // A session that owns its route hands the choice to the child.
+    if (!this.pinned) this.applyRoute?.(next.provider, next.model)
   }
 
   /** The route the child runs on: the agent's own. */

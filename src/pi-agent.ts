@@ -314,7 +314,20 @@ export class PiAgent implements Agent {
     // A pinned route is the agent's own: the Pi agent runs on the model its
     // configuration names, and the facade records that route rather than a
     // choice the child never applied.
-    this.model = new PiModel(this.session, this.options, options.pinnedRoute ?? true)
+    this.model = new PiModel(
+      this.session,
+      this.options,
+      options.pinnedRoute ?? true,
+      // A session that owns its route hands the choice to the child: the
+      // child runs on the model the session asked for. A refused route is
+      // reported at the live boundary, so the session does not keep running
+      // on another model as if the switch had happened.
+      (provider, model) => {
+        void this.rpc.setModel(provider, model).catch((error: unknown) => {
+          this.dispatch.emit('agent/error', { turn: this.turn, step: this.step, error })
+        })
+      },
+    )
     this.dispatch = agentEvents(options.ctx, this)
     this.unwatch = this.rpc.onEvent((event) => this.onPiEvent(event))
     // A dead child must not leave the driver waiting forever: settle the

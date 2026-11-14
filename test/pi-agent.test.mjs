@@ -13,6 +13,7 @@ function createAgent(options = {}) {
     session,
     agentOptions: options.agentOptions ?? {},
     rpc,
+    ...(options.pinnedRoute === undefined ? {} : { pinnedRoute: options.pinnedRoute }),
   })
   return { ctx, session, rpc, agent }
 }
@@ -368,5 +369,36 @@ test('the prompt says what to do when the child is busy', async () => {
   )
   const command = rpc.commands.find((entry) => entry.type === 'prompt')
   assert.equal(command.streamingBehavior, 'followUp')
+  agent.dispose()
+})
+
+test('a session that owns its route hands the choice to the child', async () => {
+  // The plugin does not pin a route, so the session's choice is the child's
+  // route: a recorded selection that never reaches the child would be a lie
+  // in the log.
+  const { rpc, agent } = createAgent({ pinnedRoute: false })
+  agent.model.select({ provider: 'zai', model: 'glm-5.3-flash' })
+  await waitFor(
+    () => rpc.commands.some((command) => command.type === 'set_model'),
+    2000,
+    'the model switch',
+  )
+  const command = rpc.commands.find((entry) => entry.type === 'set_model')
+  assert.equal(command.provider, 'zai')
+  assert.equal(command.modelId, 'glm-5.3-flash')
+  agent.dispose()
+})
+
+test('a pinned route keeps the choice away from the child', async () => {
+  // The plugin names the route: the session's own selection is the
+  // session's record, not the child's route.
+  const { rpc, agent } = createAgent({ pinnedRoute: true })
+  agent.model.select({ provider: 'zai', model: 'glm-5.3-flash' })
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(
+    rpc.commands.some((command) => command.type === 'set_model'),
+    false,
+    'the child keeps the route the plugin names',
+  )
   agent.dispose()
 })

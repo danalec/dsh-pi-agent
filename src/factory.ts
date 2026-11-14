@@ -370,16 +370,16 @@ export class PiAgentFactory implements AgentFactory {
     const credentialEnv = await resolvePiCredentialEnv(this.registryCtx, piModelsFile(), this.options.trace)
     this.options.trace?.(`credentials for the child: ${Object.keys(credentialEnv).join(', ') || 'none'}`)
     // A provider without a usable key has no models: Pi answers
-    // `set_model` with "Model not found", and a request to it never
-    // returns. The host knows the route's provider, so it says so in one
-    // sentence instead of letting the child fail in a way that looks
-    // like a hang.
+    // `set_model` with "Model not found". The host cannot say whether the
+    // child can authenticate — the key may live in Pi's own configuration,
+    // in its auth file, or in an account the provider holds — so this is
+    // a note, not a verdict: the child's own answer is the one that counts.
     if (provider !== '') {
       const credential = await piRouteCredential(this.registryCtx, provider)
       if (!credential.present && credentialEnv[credential.ref] === undefined) {
-        throw new Error(
+        this.options.trace?.(
           `the host holds no credential for the provider "${provider}" (${credential.ref});`
-          + ' the Pi child would have no model to run on',
+          + ' the child may still have one of its own',
         )
       }
     }
