@@ -30,6 +30,7 @@ import {
   type Session,
   type SessionId,
 } from '@deepseek-ai/dsh-session'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -49,6 +50,15 @@ export interface PiFactoryOptions {
   cwd: string
   /** Pi model route (`provider/model`, e.g. `anthropic/claude-sonnet-4-5`). */
   model?: string
+  /**
+   * The thinking level the child runs on.
+   *
+   * Pi's reasoning effort is a session setting of its own, applied to
+   * the model that is selected. The level is recorded in the session's
+   * durable model selection, so the log names the effort the model
+   * answered with.
+   */
+  thinkingLevel?: string
   /**
    * Ignore the route the session asks for and always use `model`.
    *
@@ -376,6 +386,9 @@ export class PiAgentFactory implements AgentFactory {
     const rpc = new PiRpcClient({
       cwd,
       model: route === '' ? undefined : route,
+      ...(this.options.thinkingLevel === undefined
+        ? {}
+        : { thinkingLevel: this.options.thinkingLevel }),
       piPath: this.options.piPath,
       sessionFile,
       signal,
@@ -391,6 +404,11 @@ export class PiAgentFactory implements AgentFactory {
         // request: the request is a wish, the resolved route is the truth.
         ...(provider !== '' ? { provider } : {}),
         ...(model !== '' ? { model } : {}),
+        // The durable model selection names the effort the model answered
+        // with: the thinking level the child runs on.
+        ...(this.options.thinkingLevel === undefined
+          ? {}
+          : { reasoningEffort: ReasoningEffortId(this.options.thinkingLevel) }),
       },
       rpc,
       // Whether the route belongs to the agent rather than to the session.

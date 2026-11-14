@@ -46,6 +46,10 @@ rl.on('line', (line) => {
     respond({ id, type: 'response', command: 'set_model', success: true, data: { id: command.modelId } })
     return
   }
+  if (type === 'set_thinking_level') {
+    respond({ id, type: 'response', command: 'set_thinking_level', success: true, data: { level: command.level } })
+    return
+  }
   if (type === 'never_answer') {
     // Deliberately silent: exercises the client's response timeout.
     return

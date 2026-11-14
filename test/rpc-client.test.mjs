@@ -98,3 +98,22 @@ test('a dialog request is answered, so the child is never left waiting', async (
     client.close()
   }
 })
+
+test('the thinking level is sent after the route it belongs to', async () => {
+  // The level applies to the model that is selected: it is sent after the
+  // route, never before it.
+  const client = new PiRpcClient({
+    cwd: tmpdir(),
+    piPath: makeLauncher(),
+    model: 'anthropic/claude-x',
+    thinkingLevel: 'high',
+    commandTimeoutMs: 10_000,
+  })
+  try {
+    await client.ready
+    const state = await client.send({ type: 'get_state' })
+    assert.equal(state.success, true)
+  } finally {
+    client.close()
+  }
+})

@@ -147,6 +147,16 @@ export interface Config {
   /** Pi model route (`provider/model`, e.g. `anthropic/claude-sonnet-4-5`). */
   model?: string
   /**
+   * The thinking level the child runs on (`off`, `minimal`, `low`,
+   * `medium`, `high`, `xhigh`, `max`).
+   *
+   * Pi's reasoning effort is a session setting of its own, applied to
+   * the model that is selected. The level is recorded in the session's
+   * durable model selection, so the log names the effort the model
+   * answered with.
+   */
+  thinkingLevel?: string
+  /**
    * Always use `model`, ignoring the route the session asks for.
    *
    * The Pi agent has a model of its own: the session's own model selection
@@ -173,6 +183,7 @@ export const Config = z.object({
   piPath: z.string(),
   cwd: z.string(),
   model: z.string(),
+  thinkingLevel: z.string(),
   pinModel: z.boolean().default(true),
   contextBudgetBytes: z.number(),
   debug: z.boolean(),
@@ -214,6 +225,7 @@ export function apply(ctx: Context, config: Config): () => void {
         piPath: config.piPath,
         cwd,
         model: config.model,
+        ...(config.thinkingLevel === undefined ? {} : { thinkingLevel: config.thinkingLevel }),
         pinModel: config.pinModel,
         contextBudgetBytes: config.contextBudgetBytes,
         logger,

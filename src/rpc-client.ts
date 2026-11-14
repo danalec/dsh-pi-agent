@@ -100,6 +100,15 @@ export interface PiRpcClientOptions {
    */
   commandTimeoutMs?: number
   /**
+   * The thinking level the child runs on.
+   *
+   * Pi's reasoning effort is a session setting of its own: the level
+   * applies to the model that is selected, so it is sent after the
+   * route. A model that does not expose the level refuses the command,
+   * and the refusal is reported instead of ignored.
+   */
+  thinkingLevel?: string
+  /**
    * Response timeout of the `prompt` command in ms. `0` disables it.
    *
    * The prompt's response only says the child accepted the message. A child
@@ -206,6 +215,17 @@ export class PiRpcClient {
         if (!response.success) {
           throw new Error(`pi set_model failed for "${options.model}": ${response.error ?? 'unknown error'}`)
         }
+        // The thinking level belongs to the model that is now selected:
+        // it is sent after the route, never before it.
+        if (options.thinkingLevel === undefined) return
+        return this.send({ type: 'set_thinking_level', level: options.thinkingLevel })
+          .then((level) => {
+            if (!level.success) {
+              throw new Error(
+                `pi set_thinking_level failed for "${options.thinkingLevel}": ${level.error ?? 'unknown error'}`,
+              )
+            }
+          })
       })
     } else {
       this.ready = Promise.resolve()

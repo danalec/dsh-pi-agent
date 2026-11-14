@@ -220,6 +220,7 @@ Mount in the profile patch layer (`cordis.patch.yml`). A new plugin is mounted w
 | `piPath` | `string` | `'pi'` | Pi executable; resolved from `PATH` |
 | `cwd` | `string` | `process.cwd()` | Working directory for Pi sessions (a session's own `cwd` wins) |
 | `model` | `string` | — | The Pi agent's own route (`provider/model`). It must be a route Pi knows: a provider Pi cannot authenticate has no models |
+| `thinkingLevel` | `string` | — | The thinking level the child runs on (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). It is sent after the route, because the level belongs to the model that is selected |
 | `pinModel` | `boolean` | `true` | Always use `model`, ignoring the route the DSH session asks for. The Pi agent has a model of its own: the session's own model selection is the session's record and never reaches the child |
 | `debug` | `boolean` | `false` | Append protocol diagnostics to `<tmpdir>/dsh-pi-loop.log` |
 
