@@ -14,30 +14,22 @@ import { homedir } from 'node:os'
 import { spawnPi } from '../dist/spawn.js'
 import { createInterface } from 'node:readline'
 import { loadDshCredentials } from './dsh-credentials.mjs'
+import { profileRoutes } from './read-profile-models.mjs'
 
 const loaded = loadDshCredentials()
 console.log(`credentials loaded: ${loaded.join(', ')}`)
 console.log('')
 
-/** The routes to test: provider/model. */
+/**
+ * The routes to test: provider/model.
+ *
+ * The routes come from the profile, so the probe asks about the routes
+ * this machine actually uses instead of a list written down here.
+ */
+const profile = process.env.DSH_PROFILE ?? 'desktop'
 const routes = process.argv.slice(2).length > 0
   ? process.argv.slice(2)
-  : [
-      'minimax/MiniMax-M3.1-Flash',
-      'minimax/MiniMax-M3',
-      'zai/glm-5.3-highspeed',
-      'zai/glm-5.3-flash',
-      'mistral/mistral-large-4',
-      'mistral/mistral-medium-2604',
-      'qwen-token-plan/qwen3.8-max',
-      'deepseek/deepseek-v4-pro',
-      'kimi-coding/kimi-k2.5',
-      'moonshotai/kimi-k2.5',
-      'xiaomi-token-plan-cn/mimo-v2.5',
-      'openrouter/deepseek/deepseek-chat',
-      'litellm/deepseek-v4-pro',
-      'tencent/hy4',
-    ]
+  : profileRoutes(profile)
 
 /** Ask Pi to use one route and answer one trivial question. */
 function test(route) {

@@ -9,8 +9,16 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 
 const profile = process.argv[2] ?? 'desktop'
-const file = join(homedir(), '.dsh', 'profiles', profile, 'cordis.patch.yml')
-const text = readFileSync(file, 'utf8')
+
+/**
+ * The routes the profile's plugin declares.
+ *
+ * @param name - the profile to read.
+ * @returns the routes, as `provider/model` strings.
+ */
+export function profileRoutes(name) {
+  const file = join(homedir(), '.dsh', 'profiles', name, 'cordis.patch.yml')
+  const text = readFileSync(file, 'utf8')
 
 // The llm-pi-ai block: its providers dict owns the routes.
 const start = text.indexOf('- id: llm-pi-ai')
@@ -42,10 +50,45 @@ for (const line of lines) {
   }
 }
 
-for (const [name, info] of routes) {
-  const apiKeyEnv = info?.apiKeyEnv ?? '-'
-  const baseURL = info?.baseURL ?? '-'
-  const models = info?.models ?? []
-  console.log(`${name}:  apiKeyEnv=${apiKeyEnv}  baseURL=${baseURL}`)
-  console.log(`   models (${models.length}): ${models.join(', ') || '(from the pi-ai catalog)'}`)
+  const declared = []
+  for (const [provider, info] of routes) {
+    const apiKeyEnv = info?.apiKeyEnv ?? '-'
+    const baseURL = info?.baseURL ?? '-'
+    const models = info?.models ?? []
+    if (name === process.argv[2]) {
+      console.log(`${provider}:  apiKeyEnv=${apiKeyEnv}  baseURL=${baseURL}`)
+      console.log(`   models (${models.length}): ${models.join(', ') || '(from the pi-ai catalog)'}`)
+    }
+    for (const model of models) declared.push(`${provider}/${model}`)
+  }
+  return declared
+}
+
+/**
+ * The credential references the profile's plugin declares.
+ *
+ * @param name - the profile to read.
+ * @returns the environment variable names the profile's providers read.
+ */
+export function profileCredentialRefs(name) {
+  const file = join(homedir(), '.dsh', 'profiles', name, 'cordis.patch.yml')
+  const text = readFileSync(file, 'utf8')
+  const refs = new Set()
+  let current
+  for (const line of text.split(/\r?\n/)) {
+    const provider = /^ {6}([a-z0-9_-]+):\s*$/.exec(line)
+    if (provider) {
+      current = provider[1]
+      continue
+    }
+    if (current === undefined) continue
+    const key = /apiKeyEnv:\s*(\S+)/.exec(line)
+    if (key) refs.add(key[1])
+  }
+  return [...refs]
+}
+
+const declared = profileRoutes(profile)
+if (process.argv[1]?.endsWith('read-profile-models.mjs')) {
+  console.log(`routes: ${declared.length}`)
 }

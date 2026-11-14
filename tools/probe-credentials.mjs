@@ -19,9 +19,11 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import { apply as applyPersistence, Config as PersistenceConfig, name as persistenceName } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { apply, Config, inject, name } from '../dist/index.js'
+import { profileCredentialRefs, profileRoutes } from './read-profile-models.mjs'
 
 const out = line => process.stdout.write(line + '\n')
-const route = process.argv[2] ?? 'zai/glm-5.3-flash'
+const profile = process.env.DSH_PROFILE ?? 'desktop'
+const route = process.argv[2] ?? profileRoutes(profile)[0]
 const [provider, ...rest] = route.split('/')
 const model = rest.join('/')
 
@@ -55,7 +57,7 @@ while (Date.now() < deadline) {
 const credentials = ctx.get('credentials')
 out(`the host has a credential service: ${credentials !== undefined}`)
 if (credentials !== undefined) {
-  for (const ref of ['ZAI_API_KEY', 'BAILIAN_TOKEN_PLAN_API_KEY', 'TENCENT_API_KEY', 'MINIMAX_API_KEY']) {
+  for (const ref of profileCredentialRefs(profile)) {
     const hit = await credentials.resolve(ref)
     out(`  ${ref}: ${hit === undefined ? 'absent' : 'present'}`)
   }

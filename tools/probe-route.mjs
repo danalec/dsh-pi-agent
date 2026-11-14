@@ -20,9 +20,11 @@ import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import { apply as applyPersistence, Config as PersistenceConfig, name as persistenceName } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { apply, Config, inject, name } from '../dist/index.js'
 import { loadDshCredentials } from './dsh-credentials.mjs'
+import { profileRoutes } from './read-profile-models.mjs'
 
 const out = line => process.stdout.write(line + '\n')
-const [provider, ...rest] = (process.argv[2] ?? 'minimax/MiniMax-M3.1-Flash').split('/')
+const profile = process.env.DSH_PROFILE ?? 'desktop'
+const [provider, ...rest] = (process.argv[2] ?? profileRoutes(profile)[0]).split('/')
 const model = rest.join('/')
 const store = mkdtempSync(join(tmpdir(), 'dsh-pi-route-'))
 loadDshCredentials()

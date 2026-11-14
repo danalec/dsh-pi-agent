@@ -21,10 +21,12 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import { apply as applyPersistence, Config as PersistenceConfig, name as persistenceName } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { apply, Config, inject, name } from '../dist/index.js'
+import { profileRoutes } from './read-profile-models.mjs'
 
 const out = line => process.stdout.write(line + '\n')
 const id = process.argv[2]
-const model = process.argv[3] ?? 'minimax/MiniMax-M3.1-Flash'
+const profile = process.env.DSH_PROFILE ?? 'desktop'
+const model = process.argv[3] ?? profileRoutes(profile)[0]
 
 const store = mkdtempSync(join(tmpdir(), 'dsh-latency-'))
 const live = join(homedir(), '.dsh', 'sessions')
