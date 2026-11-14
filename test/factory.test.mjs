@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { resolvePiRoute } from '../dist/factory.js'
+import { piCredentialEnvNames, readPiModelConfigEnvNames } from '../dist/credentials.js'
 import { resolveWindowsExecutable } from '../dist/spawn.js'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -90,4 +91,57 @@ test('a harness route crosses to the Pi provider that serves it', () => {
   assert.equal(route.route, 'deepseek/deepseek-flash')
   assert.equal(route.provider, 'deepseek-official', 'the harness keeps its own provider name')
   assert.equal(route.piProvider, 'deepseek')
+})
+
+test('the Pi model configuration names the credential variables', () => {
+  // A gateway of the DSH profile reaches the Pi child through the model
+  // configuration: its key is read from the environment by name.
+  const directory = mkdtempSync(join(tmpdir(), 'pi-credentials-'))
+  const file = join(directory, 'models.json')
+  try {
+    writeFileSync(file, JSON.stringify({
+      providers: {
+        bailian: { baseUrl: 'https://example.test/v1', api: 'openai-completions', apiKey: '$BAILIAN_TOKEN_PLAN_API_KEY' },
+        other: { baseUrl: 'https://example.test/v2', api: 'openai-completions', apiKey: '${OTHER_KEY}' },
+        literal: { baseUrl: 'https://example.test/v3', api: 'openai-completions', apiKey: 'plain' },
+      },
+    }))
+    const names = readPiModelConfigEnvNames(file)
+    assert.ok(names.includes('BAILIAN_TOKEN_PLAN_API_KEY'))
+    assert.ok(names.includes('OTHER_KEY'))
+    assert.equal(names.includes('plain'), false)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('the credential names cover the Pi providers and the model configuration', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pi-credentials-'))
+  const file = join(directory, 'models.json')
+  try {
+    writeFileSync(file, JSON.stringify({
+      providers: { gateway: { apiKey: '$GATEWAY_KEY' } },
+    }))
+    const names = piCredentialEnvNames(file)
+    // The catalog providers Pi ships read their key from the environment.
+    assert.ok(names.includes('ZAI_API_KEY'))
+    assert.ok(names.includes('MISTRAL_API_KEY'))
+    // The gateway of the profile reaches the child by name.
+    assert.ok(names.includes('GATEWAY_KEY'))
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('the Pi agent keeps its own route by default', () => {
+  // The session's own model selection is the session's record; the Pi child
+  // runs on the route the plugin names.
+  const pinned = resolvePiRoute('zai/glm-5.3-flash', undefined)
+  assert.equal(pinned.route, 'zai/glm-5.3-flash')
+})
+
+test('an explicit pinModel=false lets the session route drive the child', () => {
+  // The opt-in path: the session asks for a route and the child takes it.
+  const crossed = resolvePiRoute('minimax/MiniMax-M3.1-Flash', { provider: 'zai', model: 'glm-5.3-flash' })
+  assert.equal(crossed.route, 'zai/glm-5.3-flash')
 })

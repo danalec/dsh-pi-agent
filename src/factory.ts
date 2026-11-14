@@ -35,6 +35,7 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { buildPiSessionFile } from './history.ts'
 import { foldModelState } from './model.ts'
+import { piModelsFile, resolvePiCredentialEnv } from './credentials.ts'
 import { PiAgent } from './pi-agent.ts'
 import { PiRpcClient } from './rpc-client.ts'
 
@@ -49,10 +50,13 @@ export interface PiFactoryOptions {
   /** Pi model route (`provider/model`, e.g. `anthropic/claude-sonnet-4-5`). */
   model?: string
   /**
-   * Ignore the route DSH requests for a session and always use `model`.
+   * Ignore the route the session asks for and always use `model`.
    *
-   * DSH's own providers are not Pi providers: a session created with the
-   * frontend's model picker would otherwise hand Pi a route Pi refuses.
+   * The Pi agent has a model of its own: the session's own model selection
+   * is the session's record and never reaches the child. Set this to
+   * `false` to let the session's route drive the child instead.
+   *
+   * Defaults to `true`.
    */
   pinModel?: boolean
   /** Diagnostics sink; omit to keep quiet. */
@@ -312,7 +316,7 @@ export class PiAgentFactory implements AgentFactory {
     if (recorded !== null) {
       return resolvePiRoute(this.options.model, { provider: recorded.provider, model: recorded.model })
     }
-    return resolvePiRoute(this.options.model, this.options.pinModel === true ? undefined : requested)
+    return resolvePiRoute(this.options.model, this.options.pinModel === false ? requested : undefined)
   }
 
   /** Mint the Pi RPC child, build the scoped PiAgent, and publish the pair. */
@@ -345,6 +349,11 @@ export class PiAgentFactory implements AgentFactory {
         : { contextBudgetBytes: this.options.contextBudgetBytes }),
       logger: this.options.logger,
     })
+    // The Pi child is a separate process and does not inherit the host's
+    // credential store: the keys it needs are resolved here and handed
+    // over as environment variables, which is Pi's own mechanism.
+    const credentialEnv = await resolvePiCredentialEnv(this.registryCtx, piModelsFile(), this.options.trace)
+    this.options.trace?.(`credentials for the child: ${Object.keys(credentialEnv).join(', ') || 'none'}`)
     const rpc = new PiRpcClient({
       cwd,
       model: route === '' ? undefined : route,
@@ -352,6 +361,7 @@ export class PiAgentFactory implements AgentFactory {
       sessionFile,
       signal,
       logger: this.options.logger,
+      env: credentialEnv,
     })
     const agent = new PiAgent({
       ctx: this.registryCtx,

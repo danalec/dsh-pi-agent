@@ -58,6 +58,10 @@ export function foldModelState(session: Session): ModelState {
  *
  * The recorded choice wins over the live options; a selection is durable
  * before it is visible.
+ *
+ * The selection is the DSH session's own record: the Pi child runs on the
+ * route its own configuration names (see `pinModel`), and the DSH
+ * selection does not reach it. The Pi agent has a model of its own.
  */
 export class PiModel implements Model {
   private state: ModelState
@@ -65,15 +69,6 @@ export class PiModel implements Model {
   constructor(
     private readonly session: Session,
     private readonly options: AgentOptions,
-    /**
-     * Applies a selection to the child.
-     *
-     * The Pi child owns the route, so a durable selection only takes effect
-     * when the child is switched to it. Without this the frontend's model
-     * switcher would record the choice and the run would keep using the
-     * model the child started with.
-     */
-    private readonly applyRoute?: (provider: string, model: string) => void,
   ) {
     this.state = foldModelState(session)
   }
@@ -92,8 +87,6 @@ export class PiModel implements Model {
     if (sameModelSelection(this.state.pending ?? this.state.lastUsed, next)) return
     const event = this.session.append('model/selection', next)
     this.state = { ...this.state, pending: event.data }
-    // The child owns the route: the durable selection becomes real only when
-    // the child is switched to it.
-    this.applyRoute?.(next.provider, next.model)
+
   }
 }

@@ -147,10 +147,13 @@ export interface Config {
   /** Pi model route (`provider/model`, e.g. `anthropic/claude-sonnet-4-5`). */
   model?: string
   /**
-   * Always use `model`, ignoring the route DSH requests for a session.
+   * Always use `model`, ignoring the route the session asks for.
    *
-   * DSH's own providers are not Pi providers: without this, a session created
-   * with the frontend's model picker would hand Pi a route Pi refuses.
+   * The Pi agent has a model of its own: the session's own model selection
+   * is the session's record and never reaches the child. Set this to `false`
+   * to let the session's route drive the child instead.
+   *
+   * Defaults to `true`.
    */
   pinModel?: boolean
   /**
@@ -170,7 +173,7 @@ export const Config = z.object({
   piPath: z.string(),
   cwd: z.string(),
   model: z.string(),
-  pinModel: z.boolean(),
+  pinModel: z.boolean().default(true),
   contextBudgetBytes: z.number(),
   debug: z.boolean(),
 }) as unknown as z<Config>

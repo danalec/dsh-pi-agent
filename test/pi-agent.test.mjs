@@ -321,16 +321,16 @@ test('a failed run still closes the step', async () => {
   agent.dispose()
 })
 
-test('a model selection reaches the child', async () => {
+test('a model selection does not reach the child', async () => {
+  // The Pi agent has a model of its own: the DSH session's selection is the
+  // session's record, not the child's route.
   const { rpc, agent } = createAgent()
   agent.model.select({ provider: 'zai', model: 'glm-5.3-flash' })
-  await waitFor(
-    () => rpc.commands.some((command) => command.type === 'set_model'),
-    2000,
-    'the model switch',
+  await new Promise(resolve => setTimeout(resolve, 100))
+  assert.equal(
+    rpc.commands.some((command) => command.type === 'set_model'),
+    false,
+    'the child keeps the route its own configuration names',
   )
-  const command = rpc.commands.find((entry) => entry.type === 'set_model')
-  assert.equal(command.provider, 'zai')
-  assert.equal(command.modelId, 'glm-5.3-flash')
   agent.dispose()
 })

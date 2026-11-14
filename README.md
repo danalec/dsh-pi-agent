@@ -36,8 +36,8 @@ It also makes a clean A/B experiment: same frontend, same session format, switch
 | Layer | Behavior |
 | --- | --- |
 | System prompt / tools / context | **Untouched** — identical to running `pi` in the same directory (context files like `AGENTS.md` are loaded by Pi itself) |
-| Model routing | `set_model` per session; a delegated subagent's requested model wins over the factory default. A model without a provider borrows the default's provider — the provider slot never receives a model id. A route Pi refuses fails the turn loudly instead of silently running Pi's default model |
-| Many models | a session runs on the model the frontend's picker chose (`pinModel: false`). The DSH provider names and the Pi provider names are the same, so a route crosses the process boundary unchanged; the harness's own `deepseek-official` route is mapped to Pi's `deepseek` provider. A gateway the DSH profile declares (`tencent`, `bailian-tpp`) needs the same endpoint in Pi's model configuration — `node tools/sync-pi-providers.mjs <profile>` writes it |
+| Model routing | the Pi child runs on the route the plugin's `model:` names (`pinModel: true`), and the DSH session's own model selection does not reach it — the Pi agent has a model of its own. A route Pi refuses fails the turn loudly instead of silently running Pi's default model |
+| Many models | any route Pi knows works, and the keys come from the host's credential store: the plugin resolves them and hands them to the child as environment variables, which is Pi's own mechanism. A provider Pi cannot authenticate has no models — Pi answers `set_model` with "Model not found". A gateway the DSH profile declares (`tencent`, `bailian-tpp`) needs the same endpoint in Pi's model configuration — `node tools/sync-pi-providers.mjs <profile>` writes it |
 | Steering | DSH `send(..., 'next-turn' \| 'next-step')` maps to Pi's `steer` — inject instructions mid-run. The instruction is delivered to the running loop exactly once, and a batch Pi never injects is recovered and delivered as a step of its own instead of being dropped |
 | Queue | the frontend's queue dock reads the `inbox` session projection, which the native loop owns; the Pi loop registers it itself, so the queued and steering items stay visible |
 | Session persistence | DSH's session events remain the durable source of truth; a Pi session file is rebuilt from them on every create/resume so the child starts with full history. The rebuild fits a byte budget (`contextBudgetBytes`, 1 MB by default): the oldest messages are dropped, the way the native loop compacts, and a tool result never outlives the tool call it answers |
@@ -204,8 +204,8 @@ Mount in the profile patch layer (`cordis.patch.yml`). A new plugin is mounted w
       config:
         piPath: 'pi'                      # or an absolute path
         cwd: '/path/to/your/project'      # working directory for Pi sessions
-        model: 'anthropic/claude-sonnet-4-5'  # provider/model route
-        pinModel: false                   # keep Pi's route even if DSH asks for another
+        model: 'anthropic/claude-sonnet-4-5'  # the Pi agent's own route
+        pinModel: true                    # the Pi agent keeps this route
         debug: false
 
 # Fall back to DSH's own loop: disable this entry and re-enable agent-loop.
@@ -219,8 +219,8 @@ Mount in the profile patch layer (`cordis.patch.yml`). A new plugin is mounted w
 | --- | --- | --- | --- |
 | `piPath` | `string` | `'pi'` | Pi executable; resolved from `PATH` |
 | `cwd` | `string` | `process.cwd()` | Working directory for Pi sessions (a session's own `cwd` wins) |
-| `model` | `string` | — | Pi model route (`provider/model`) |
-| `pinModel` | `boolean` | `false` | Always use `model`, ignoring the route DSH requests for a session. DSH's own providers are not Pi providers, so a session created with the frontend's model picker would otherwise hand Pi a route Pi refuses |
+| `model` | `string` | — | The Pi agent's own route (`provider/model`). It must be a route Pi knows: a provider Pi cannot authenticate has no models |
+| `pinModel` | `boolean` | `true` | Always use `model`, ignoring the route the DSH session asks for. The Pi agent has a model of its own: the session's own model selection is the session's record and never reaches the child |
 | `debug` | `boolean` | `false` | Append protocol diagnostics to `<tmpdir>/dsh-pi-loop.log` |
 
 ### Mounting rules
@@ -264,7 +264,8 @@ a turn is durable when the model call starts, not when it ends.
 | `patch: entry "pi-loop" not found` | the entry is a bare `- id:` override instead of an `insert:` | wrap it in `- insert:` |
 | `an agent factory is already registered` | DSH's `agent-loop` still holds the factory slot | disable `agent-loop` in the same patch layer |
 | `no agent factory registered (load an agent-loop plugin)` | the plugin did not mount (wrong entry name, or the profile has no `agent-loop` and no `pi-loop`) | check the entry `name:` and the loader's diagnostics |
-| Pi refuses the model route | DSH handed Pi a DSH provider | set `model:` to a Pi route and `pinModel: true` |
+| Pi refuses the model route | `model:` names a provider Pi does not know, or one it cannot authenticate | name a route Pi knows (`pi --list-models`) |
+| `Model not found: provider/model` | the child has no key for that provider: a provider without usable authentication has no models | the host's credential store must hold the key the provider reads (`ZAI_API_KEY`, `BAILIAN_TOKEN_PLAN_API_KEY`, …); the plugin hands the resolved keys to the child |
 | The resumed turn produces no answer | the rebuilt Pi session file lacks the assistant usage | rebuild from a current checkout (`npm run build`); Pi needs the token count to prepare its request |
 | Nothing happens on Windows | `pi` is a `.cmd` shim that the desktop app cannot find | point `piPath` at the absolute `pi.cmd` path |
 | No diagnostics | `debug` is off | set `debug: true` and read `%TEMP%/dsh-pi-loop.log` |
