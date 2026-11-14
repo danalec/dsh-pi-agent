@@ -6,3 +6,4 @@ dist/
 .DS_Store
 coverage/
 AGENTS.md
+.tmp-live-stream/
